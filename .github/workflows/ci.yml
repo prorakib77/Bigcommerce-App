@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '9.15.4'
+  # Deterministic, non-secret values so CI never needs real credentials.
+  DATABASE_URL: postgresql://kickflip_ci:kickflip_ci@localhost:5432/kickflip_ci?schema=public
+  DIRECT_DATABASE_URL: postgresql://kickflip_ci:kickflip_ci@localhost:5432/kickflip_ci?schema=public
+  MASTER_ENCRYPTION_KEY: MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=
+  APP_SESSION_SIGNING_KEY: MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODk=
+  APP_BASE_URL: http://localhost:3000
+  BIGCOMMERCE_CLIENT_ID: ci_placeholder_client_id
+  BIGCOMMERCE_CLIENT_SECRET: ci_placeholder_client_secret
+  BIGCOMMERCE_AUTH_CALLBACK_URL: http://localhost:3000/api/bigcommerce/auth
+  BIGCOMMERCE_LOAD_CALLBACK_URL: http://localhost:3000/api/bigcommerce/load
+  BIGCOMMERCE_UNINSTALL_CALLBACK_URL: http://localhost:3000/api/bigcommerce/uninstall
+  BIGCOMMERCE_REMOVE_USER_CALLBACK_URL: http://localhost:3000/api/bigcommerce/remove-user
+  KICKFLIP_ALLOWED_IMAGE_HOSTS: cdn.gokickflip.com,images.gokickflip.com
+  MOCK_MODE: 'true'
+
+jobs:
+  verify:
+    name: Lint, typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.4-alpine
+        env:
+          POSTGRES_USER: kickflip_ci
+          POSTGRES_PASSWORD: kickflip_ci
+          POSTGRES_DB: kickflip_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kickflip_ci -d kickflip_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Apply migrations
+        run: pnpm exec prisma migrate deploy
+
+      - name: Run integration tests
+        run: pnpm test:integration
+
+  prisma-check:
+    name: Prisma schema/migration validation
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.4-alpine
+        env:
+          POSTGRES_USER: kickflip_ci
+          POSTGRES_PASSWORD: kickflip_ci
+          POSTGRES_DB: kickflip_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kickflip_ci -d kickflip_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate schema
+        run: pnpm exec prisma validate
+      - name: Confirm migrations apply cleanly to an empty database
+        run: pnpm exec prisma migrate deploy
+      - name: Confirm no pending/unsynced migrations remain
+        run: pnpm exec prisma migrate status
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # High/critical only — informational for now (continue-on-error above)
+      # so a new advisory doesn't block merges, but is visible in the log.
+      - run: pnpm audit --audit-level=high
+
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: [verify]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: kickflip-import-app:ci
+
+  docker-publish:
+    name: Publish Docker image
+    runs-on: ubuntu-latest
+    needs: [verify, integration, docker-build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Only runs when registry credentials are configured as repo secrets —
+      # CI never requires them to pass.
+      - name: Log in to registry
+        if: ${{ secrets.DOCKER_REGISTRY_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.DOCKER_REGISTRY || 'ghcr.io' }}
+          username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
+          password: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
+      - name: Build and push
+        if: ${{ secrets.DOCKER_REGISTRY_USERNAME != '' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ vars.DOCKER_REGISTRY || 'ghcr.io' }}/${{ github.repository }}:${{ github.sha }}
+            ${{ vars.DOCKER_REGISTRY || 'ghcr.io' }}/${{ github.repository }}:latest

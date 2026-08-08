@@ -1,0 +1,210 @@
+# Render Blueprint — see docs/deployment-runbook.md for the full walkthrough.
+#
+# Creates:
+#   - kickflip-import-web:    the Next.js app (OAuth callbacks, embedded UI, API)
+#   - kickflip-import-worker: the background job processor (pg-boss)
+#   - kickflip-import-db:     managed PostgreSQL
+#
+# Secrets are intentionally NOT set here (sync: false) — set real values in
+# the Render dashboard after the first deploy. Nothing sensitive belongs in
+# this file or in git.
+
+databases:
+  - name: kickflip-import-db
+    databaseName: kickflip_import
+    user: kickflip_import
+    plan: basic-256mb
+    region: oregon
+    postgresMajorVersion: '17'
+
+services:
+  - type: web
+    name: kickflip-import-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: pnpm start
+    plan: starter
+    region: oregon
+    autoDeployTrigger: commit
+    healthCheckPath: /health/live
+    # Runs before each deploy is promoted to live. Uses the same image with
+    # a different command, and DIRECT_DATABASE_URL (unpooled) if it differs
+    # from DATABASE_URL.
+    preDeployCommand: pnpm prisma migrate deploy
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: '3000'
+      - key: LOG_LEVEL
+        value: info
+      - key: MOCK_MODE
+        value: 'false'
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kickflip-import-db
+          property: connectionString
+      - key: DIRECT_DATABASE_URL
+        fromDatabase:
+          name: kickflip-import-db
+          property: connectionString
+      # --- Set these in the Render dashboard after the service exists ---
+      - key: APP_BASE_URL
+        sync: false
+      - key: BIGCOMMERCE_CLIENT_ID
+        sync: false
+      - key: BIGCOMMERCE_CLIENT_SECRET
+        sync: false
+      - key: BIGCOMMERCE_AUTH_CALLBACK_URL
+        sync: false
+      - key: BIGCOMMERCE_LOAD_CALLBACK_URL
+        sync: false
+      - key: BIGCOMMERCE_UNINSTALL_CALLBACK_URL
+        sync: false
+      - key: BIGCOMMERCE_REMOVE_USER_CALLBACK_URL
+        sync: false
+      - key: BIGCOMMERCE_APP_SCOPES
+        value: store_v2_products store_v2_content store_v2_orders_read_only
+      - key: MASTER_ENCRYPTION_KEY
+        sync: false
+      - key: APP_SESSION_SIGNING_KEY
+        sync: false
+      - key: APP_SESSION_TTL_MINUTES
+        value: '15'
+      - key: KICKFLIP_API_BASE_URL
+        value: https://api.gokickflip.com/v1
+      - key: KICKFLIP_ALLOWED_IMAGE_HOSTS
+        sync: false
+      - key: KICKFLIP_CUSTOMIZER_BASE_URL
+        sync: false
+      - key: HTTP_CONNECT_TIMEOUT_MS
+        value: '5000'
+      - key: HTTP_REQUEST_TIMEOUT_MS
+        value: '30000'
+      - key: IMPORT_GLOBAL_CONCURRENCY
+        value: '5'
+      - key: IMPORT_PER_STORE_CONCURRENCY
+        value: '2'
+      - key: IMPORT_MAX_ATTEMPTS
+        value: '5'
+      - key: MAX_BATCH_IMPORT_SIZE
+        value: '50'
+      - key: IMAGE_MAX_BYTES
+        value: '8388608'
+      - key: IMAGE_MAX_REDIRECTS
+        value: '3'
+      - key: IMAGE_MAX_PER_DESIGN
+        value: '8'
+      - key: DATA_RETENTION_DAYS
+        value: '365'
+      - key: RATE_LIMIT_SENSITIVE_WINDOW_MS
+        value: '60000'
+      - key: RATE_LIMIT_SENSITIVE_MAX
+        value: '10'
+      - key: RATE_LIMIT_STOREFRONT_WINDOW_MS
+        value: '60000'
+      - key: RATE_LIMIT_STOREFRONT_MAX
+        value: '120'
+      - key: RATE_LIMIT_WEBHOOK_WINDOW_MS
+        value: '60000'
+      - key: RATE_LIMIT_WEBHOOK_MAX
+        value: '60'
+      - key: SENTRY_DSN
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false
+
+  - type: worker
+    name: kickflip-import-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: pnpm worker:start
+    plan: starter
+    region: oregon
+    autoDeployTrigger: commit
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: MOCK_MODE
+        value: 'false'
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kickflip-import-db
+          property: connectionString
+      - key: DIRECT_DATABASE_URL
+        fromDatabase:
+          name: kickflip-import-db
+          property: connectionString
+      # The worker never serves BigCommerce callbacks but still validates
+      # its full environment at boot, so these must be set to the same
+      # values as the web service.
+      - key: APP_BASE_URL
+        sync: false
+      - key: BIGCOMMERCE_CLIENT_ID
+        sync: false
+      - key: BIGCOMMERCE_CLIENT_SECRET
+        sync: false
+      - key: BIGCOMMERCE_AUTH_CALLBACK_URL
+        sync: false
+      - key: BIGCOMMERCE_LOAD_CALLBACK_URL
+        sync: false
+      - key: BIGCOMMERCE_UNINSTALL_CALLBACK_URL
+        sync: false
+      - key: BIGCOMMERCE_REMOVE_USER_CALLBACK_URL
+        sync: false
+      - key: BIGCOMMERCE_APP_SCOPES
+        value: store_v2_products store_v2_content store_v2_orders_read_only
+      - key: MASTER_ENCRYPTION_KEY
+        sync: false
+      - key: APP_SESSION_SIGNING_KEY
+        sync: false
+      - key: APP_SESSION_TTL_MINUTES
+        value: '15'
+      - key: KICKFLIP_API_BASE_URL
+        value: https://api.gokickflip.com/v1
+      - key: KICKFLIP_ALLOWED_IMAGE_HOSTS
+        sync: false
+      - key: KICKFLIP_CUSTOMIZER_BASE_URL
+        sync: false
+      - key: HTTP_CONNECT_TIMEOUT_MS
+        value: '5000'
+      - key: HTTP_REQUEST_TIMEOUT_MS
+        value: '30000'
+      - key: IMPORT_GLOBAL_CONCURRENCY
+        value: '5'
+      - key: IMPORT_PER_STORE_CONCURRENCY
+        value: '2'
+      - key: IMPORT_MAX_ATTEMPTS
+        value: '5'
+      - key: MAX_BATCH_IMPORT_SIZE
+        value: '50'
+      - key: IMAGE_MAX_BYTES
+        value: '8388608'
+      - key: IMAGE_MAX_REDIRECTS
+        value: '3'
+      - key: IMAGE_MAX_PER_DESIGN
+        value: '8'
+      - key: DATA_RETENTION_DAYS
+        value: '365'
+      - key: RATE_LIMIT_SENSITIVE_WINDOW_MS
+        value: '60000'
+      - key: RATE_LIMIT_SENSITIVE_MAX
+        value: '10'
+      - key: RATE_LIMIT_STOREFRONT_WINDOW_MS
+        value: '60000'
+      - key: RATE_LIMIT_STOREFRONT_MAX
+        value: '120'
+      - key: RATE_LIMIT_WEBHOOK_WINDOW_MS
+        value: '60000'
+      - key: RATE_LIMIT_WEBHOOK_MAX
+        value: '60'
+      - key: SENTRY_DSN
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false

@@ -1,0 +1,48 @@
+name: kickflip-import-app
+
+services:
+  postgres:
+    image: postgres:17.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kickflip_app
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: kickflip_app
+      # Local-dev-only convenience: accept any host connection without SCRAM
+      # negotiation so Docker Desktop's NATed loopback works out of the box.
+      # Production uses a managed Postgres instance (Render) with normal
+      # password auth — this setting is never used outside this compose file.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      # Mapped off the default 5432 to avoid colliding with any PostgreSQL
+      # already installed natively on the host. Adjust freely — only the
+      # host side (left of the colon) matters outside this compose network.
+      - '5544:5432'
+    volumes:
+      - kickflip_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U kickflip_app -d kickflip_app']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-test:
+    image: postgres:17.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kickflip_app_test
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: kickflip_app_test
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - '5545:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U kickflip_app_test -d kickflip_app_test']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    profiles:
+      - test
+
+volumes:
+  kickflip_postgres_data:
