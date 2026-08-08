@@ -41,7 +41,11 @@ export async function ensureStorefrontScriptRegistered(
   const src = `${env.APP_BASE_URL}/api/public/storefront/widget?storeHash=${encodeURIComponent(store.storeHash)}`;
 
   const script = await createScript(client, {
-    name: 'Kickflip Import — Customize button',
+    // Plain ASCII only: BigCommerce's Scripts API rejects the em-dash
+    // previously used here with a 422 "Script name contains invalid
+    // characters" — confirmed in production logs, silently blocking every
+    // install and every self-heal retry from ever succeeding.
+    name: 'Kickflip Import - Customize button',
     src,
     loadMethod: 'default',
     location: 'footer',
