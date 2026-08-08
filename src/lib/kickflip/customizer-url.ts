@@ -19,3 +19,18 @@ export function buildKickflipCustomizerUrl(
   if (!template.includes(TOKEN)) return null;
   return template.split(TOKEN).join(encodeURIComponent(customizerProductId));
 }
+
+const IFRAME_SRC_PATTERN = /<iframe\b[^>]*\ssrc\s*=\s*["']([^"']+)["'][^>]*>/i;
+
+/**
+ * Third-party widget providers typically hand out ready-to-paste
+ * `<iframe src="...">` embed snippets, not a bare URL — but the Customize
+ * URL field only ever wants the URL itself (this app builds its own iframe
+ * around it on the storefront). Pasting the full snippet is a natural
+ * mistake, so unwrap it rather than rejecting it outright.
+ */
+export function extractCustomizeUrl(input: string): string {
+  const trimmed = input.trim();
+  const match = trimmed.match(IFRAME_SRC_PATTERN);
+  return match?.[1] ?? trimmed;
+}

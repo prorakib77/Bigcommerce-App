@@ -4,13 +4,17 @@ import { readJsonBody } from '@/server/http/body';
 import { assertPermission, Permissions } from '@/server/authorization';
 import { AppError } from '@/server/errors/app-error';
 import { saveProductCustomizeConfig } from '@/services/product-customize-service';
+import { extractCustomizeUrl } from '@/lib/kickflip/customizer-url';
 
 export const dynamic = 'force-dynamic';
 
 const putBodySchema = z
   .object({
     enabled: z.boolean(),
-    customizeUrl: z.url({ protocol: /^https$/ }).max(2048).nullable(),
+    customizeUrl: z.preprocess(
+      (value) => (typeof value === 'string' ? extractCustomizeUrl(value) : value),
+      z.url({ protocol: /^https$/ }).max(2048).nullable(),
+    ),
     buttonLabel: z.string().trim().min(1).max(60).optional().default('Customize'),
   })
   .refine((body) => !body.enabled || body.customizeUrl !== null, {

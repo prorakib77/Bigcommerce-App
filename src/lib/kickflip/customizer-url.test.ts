@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildKickflipCustomizerUrl } from './customizer-url';
+import { buildKickflipCustomizerUrl, extractCustomizeUrl } from './customizer-url';
 
 describe('buildKickflipCustomizerUrl', () => {
   it('substitutes the token into the template', () => {
@@ -30,5 +30,39 @@ describe('buildKickflipCustomizerUrl', () => {
     expect(
       buildKickflipCustomizerUrl('42', 'https://example.com/{customizerProductId}?ref={customizerProductId}'),
     ).toBe('https://example.com/42?ref=42');
+  });
+});
+
+describe('extractCustomizeUrl', () => {
+  it('returns a bare URL unchanged', () => {
+    expect(extractCustomizeUrl('https://example.com/customize')).toBe(
+      'https://example.com/customize',
+    );
+  });
+
+  it('extracts the src from a pasted iframe tag (double quotes)', () => {
+    expect(extractCustomizeUrl('<iframe src="https://example.com/customize"></iframe>')).toBe(
+      'https://example.com/customize',
+    );
+  });
+
+  it('extracts the src from a pasted iframe tag (single quotes)', () => {
+    expect(extractCustomizeUrl("<iframe src='https://example.com/customize'></iframe>")).toBe(
+      'https://example.com/customize',
+    );
+  });
+
+  it('extracts the src regardless of other attribute order', () => {
+    expect(
+      extractCustomizeUrl(
+        '<iframe width="100%" height="600" src="https://example.com/customize" frameborder="0"></iframe>',
+      ),
+    ).toBe('https://example.com/customize');
+  });
+
+  it('trims surrounding whitespace on a bare URL', () => {
+    expect(extractCustomizeUrl('  https://example.com/customize  ')).toBe(
+      'https://example.com/customize',
+    );
   });
 });
