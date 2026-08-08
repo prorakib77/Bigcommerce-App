@@ -36,8 +36,13 @@ interface SqliteClientModule {
 function createSqlitePrismaClient(url: string): PrismaClient {
   const require = createRequire(import.meta.url);
   const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3') as SqliteAdapterModule;
+  // Built from parts (not a string literal) so Turbopack can't statically
+  // resolve/validate this module at production-build time — it genuinely
+  // doesn't exist there (only generated locally via db:generate:sqlite) and
+  // this branch is never reached in production (see createPrismaClient).
+  const sqliteClientSpecifier = ['.prisma', 'client-sqlite'].join('/');
   const { PrismaClient: SqlitePrismaClient } =
-    require('.prisma/client-sqlite') as SqliteClientModule;
+    require(sqliteClientSpecifier) as SqliteClientModule;
 
   const adapter = new PrismaBetterSqlite3({ url });
   return new SqlitePrismaClient({ adapter, log: ['error', 'warn'] });

@@ -11,7 +11,7 @@
     "dev": "next dev",
     "worker:dev": "tsx watch src/jobs/worker.ts",
     "build": "next build",
-    "vercel-build": "prisma migrate deploy && next build",
+    "vercel-build": "DATABASE_URL=file:./vercel-build-only.db prisma generate --config prisma.sqlite.config.ts && prisma migrate deploy && next build",
     "start": "next start",
     "worker:start": "tsx src/jobs/worker.ts",
     "lint": "eslint .",
