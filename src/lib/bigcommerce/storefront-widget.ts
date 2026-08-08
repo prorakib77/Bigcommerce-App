@@ -15,10 +15,18 @@
  *    the storeHash baked into this script's own `src` query string.
  *  - `window.BCData.product_attributes.id` exists — a Stencil/Cornerstone
  *    convention, absent on other themes or non-product pages.
- *  - `#form-action-addToCart` is the Add to Cart button id — Cornerstone-
- *    specific, best-effort.
  * Every one of these is checked defensively; absence is always a silent
  * no-op, never a thrown error.
+ *
+ * Finding the Add to Cart button: `#form-action-addToCart` (Cornerstone's
+ * default id) is tried first as a fast path, but confirmed in production
+ * that custom/Page-Builder-heavy themes often don't use it at all, and
+ * frequently render the button client-side (mounted after this script
+ * already ran, not present in the initial DOM). So this also falls back to
+ * scanning for any button/submit-input/role="button" link whose visible
+ * text reads "add to cart" (case-insensitive) — a much more theme-agnostic
+ * signal than any specific id/class — and polls for it for a bounded window
+ * to tolerate late client-side rendering, rather than only checking once.
  */
 export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): string {
   const appBaseUrlLiteral = JSON.stringify(params.appBaseUrl);
@@ -94,6 +102,42 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       document.body.appendChild(overlay);
     }
 
+    var ADD_TO_CART_TEXT = /add\s*to\s*cart/i;
+    var POLL_INTERVAL_MS = 400;
+    var MAX_POLL_ATTEMPTS = 40; // ~16s — generous for late client-rendered buttons
+
+    function findAddToCartAnchor() {
+      var byId = document.getElementById('form-action-addToCart');
+      if (byId) return byId;
+
+      var candidates = document.querySelectorAll(
+        'button, input[type="submit"], input[type="button"], a[role="button"]',
+      );
+      for (var i = 0; i < candidates.length; i++) {
+        var el = candidates[i];
+        var text = el.tagName === 'INPUT' ? el.value : el.textContent;
+        if (text && ADD_TO_CART_TEXT.test(text)) return el;
+      }
+      return null;
+    }
+
+    function waitForAddToCartAnchor(callback) {
+      var anchor = findAddToCartAnchor();
+      if (anchor) {
+        callback(anchor);
+        return;
+      }
+      var attempts = 0;
+      var timer = setInterval(function () {
+        attempts++;
+        var found = findAddToCartAnchor();
+        if (found || attempts >= MAX_POLL_ATTEMPTS) {
+          clearInterval(timer);
+          callback(found);
+        }
+      }, POLL_INTERVAL_MS);
+    }
+
     fetch(configUrl, { method: 'GET' })
       .then(function (res) {
         return res && res.ok ? res.json() : null;
@@ -101,23 +145,29 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       .then(function (config) {
         if (!config || !config.enabled || !config.customizeUrl) return;
 
-        var addToCartBtn = document.getElementById('form-action-addToCart');
-        if (!addToCartBtn || !addToCartBtn.parentNode) return;
+        waitForAddToCartAnchor(function (addToCartBtn) {
+          if (!addToCartBtn || !addToCartBtn.parentNode) return;
+          // Guards against a duplicate insert if this script somehow runs
+          // more than once on the same page (e.g. a client-side router
+          // re-navigation without a full reload).
+          if (document.querySelector('[data-kickflip-customize-button]')) return;
 
-        var label = config.buttonLabel || 'Customize';
-        var button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = label;
-        button.style.cssText =
-          'display:block;width:100%;margin-top:0.75rem;padding:0.75rem 1rem;' +
-          'font-size:1rem;font-weight:600;color:#fff;background:#3c64f4;' +
-          'border:none;border-radius:4px;cursor:pointer;';
+          var label = config.buttonLabel || 'Customize';
+          var button = document.createElement('button');
+          button.type = 'button';
+          button.setAttribute('data-kickflip-customize-button', '');
+          button.textContent = label;
+          button.style.cssText =
+            'display:block;width:100%;margin-top:0.75rem;padding:0.75rem 1rem;' +
+            'font-size:1rem;font-weight:600;color:#fff;background:#3c64f4;' +
+            'border:none;border-radius:4px;cursor:pointer;';
 
-        button.addEventListener('click', function () {
-          openCustomizeOverlay(config.customizeUrl, label);
+          button.addEventListener('click', function () {
+            openCustomizeOverlay(config.customizeUrl, label);
+          });
+
+          addToCartBtn.parentNode.insertBefore(button, addToCartBtn.nextSibling);
         });
-
-        addToCartBtn.parentNode.insertBefore(button, addToCartBtn.nextSibling);
       })
       .catch(function () {
         // Best-effort only — never surface a broken storefront experience.
