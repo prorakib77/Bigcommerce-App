@@ -27,13 +27,20 @@
  *
  * Finding the Add to Cart button: `#form-action-addToCart` (Cornerstone's
  * default id) is tried first as a fast path, but confirmed in production
- * that custom/Page-Builder-heavy themes often don't use it at all, and
- * frequently render the button client-side (mounted after this script
- * already ran, not present in the initial DOM). So this also falls back to
- * scanning for any button/submit-input/role="button" link whose visible
- * text reads "add to cart" (case-insensitive) — a much more theme-agnostic
- * signal than any specific id/class — and polls for it for a bounded window
- * to tolerate late client-side rendering, rather than only checking once.
+ * that custom/Page-Builder-heavy themes often don't use it at all, and may
+ * render the button client-side (mounted after this script already ran,
+ * not present in the initial DOM). So this also falls back to scanning for
+ * any button/submit-input/role="button" link whose visible text reads "add
+ * to cart" (case-insensitive) — a much more theme-agnostic signal than any
+ * specific id/class — and polls for it for a bounded window to tolerate
+ * late client-side rendering, rather than only checking once. That scan is
+ * scoped to the product_id input's own `<form>` (falling back to the whole
+ * document only if no such form is found) — confirmed necessary in
+ * production: a page with related-product carousels/upsell widgets can
+ * have several other "Add to Cart" buttons elsewhere on the page, and an
+ * unscoped whole-document text scan risks matching one of those instead of
+ * the actual product form's button, silently inserting the Customize
+ * button somewhere the merchant never sees.
  */
 export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): string {
   const appBaseUrlLiteral = JSON.stringify(params.appBaseUrl);
@@ -54,13 +61,16 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     var storeHash = scriptUrl.searchParams.get('storeHash');
     if (!storeHash) return;
 
+    var productIdInput = document.querySelector('input[name="product_id"]');
+
     var bcData = window.BCData;
     var productId = bcData && bcData.product_attributes && bcData.product_attributes.id;
     if (!productId) {
-      var productIdInput = document.querySelector('input[name="product_id"]');
       productId = productIdInput && productIdInput.value;
     }
     if (!productId) return;
+
+    var searchScope = (productIdInput && productIdInput.closest('form')) || document;
 
     var configUrl =
       APP_BASE_URL +
@@ -121,7 +131,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       var byId = document.getElementById('form-action-addToCart');
       if (byId) return byId;
 
-      var candidates = document.querySelectorAll(
+      var candidates = searchScope.querySelectorAll(
         'button, input[type="submit"], input[type="button"], a[role="button"]',
       );
       for (var i = 0; i < candidates.length; i++) {
