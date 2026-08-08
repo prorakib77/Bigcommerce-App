@@ -12,7 +12,13 @@ const nextConfig = {
   // SQLite path — see src/server/db/prisma.ts); it's never bundlable and
   // must stay a genuine runtime require even on a machine that has it
   // installed as a devDependency.
-  serverExternalPackages: ['pino', 'pg-boss', 'better-sqlite3', '@prisma/adapter-better-sqlite3'],
+  serverExternalPackages: [
+    'pino',
+    'pg-boss',
+    'better-sqlite3',
+    '@prisma/adapter-better-sqlite3',
+    '.prisma/client-sqlite',
+  ],
   // Required for local dev through an HTTPS tunnel (ngrok/Cloudflare Tunnel)
   // when testing the real BigCommerce embed: without this, Next dev mode
   // blocks cross-origin requests for its own JS chunks/HMR from the tunnel
