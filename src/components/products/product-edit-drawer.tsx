@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Modal,
   Panel,
@@ -14,6 +14,7 @@ import {
   Flex,
   Box,
   ProgressCircle,
+  Message,
 } from '@bigcommerce/big-design';
 import { useApiData } from '@/components/shared/use-api-data';
 import { apiClient, ApiClientError } from '@/components/shared/api-client';
@@ -53,9 +54,13 @@ export function ProductEditDrawer({
   const [basicForm, setBasicForm] = useState<BasicForm | null>(null);
   const [customizeForm, setCustomizeForm] = useState<CustomizeForm | null>(null);
   const [basicMessage, setBasicMessage] = useState<string | null>(null);
-  const [customizeMessage, setCustomizeMessage] = useState<string | null>(null);
+  const [customizeMessage, setCustomizeMessage] = useState<{
+    text: string;
+    type: 'success' | 'error';
+  } | null>(null);
   const [basicBusy, setBasicBusy] = useState(false);
   const [customizeBusy, setCustomizeBusy] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (!data) return;
@@ -73,6 +78,14 @@ export function ProductEditDrawer({
     setBasicMessage(null);
     setCustomizeMessage(null);
   }, [data]);
+
+  // Clears the pending auto-close timer if the drawer unmounts (e.g. the
+  // user closes it manually) before the delay elapses.
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    };
+  }, []);
 
   async function saveBasic(): Promise<void> {
     if (!basicForm || productId === null) return;
@@ -100,13 +113,17 @@ export function ProductEditDrawer({
         customizeUrl: customizeForm.customizeUrl.trim() || null,
         buttonLabel: customizeForm.buttonLabel.trim() || 'Customize',
       });
-      setCustomizeMessage('Customize settings saved.');
+      setCustomizeMessage({ text: 'Customize settings saved.', type: 'success' });
       reload();
       onSaved();
+      // Give the success message a moment to register before closing —
+      // closing immediately would hide it entirely.
+      closeTimer.current = setTimeout(onClose, 1100);
     } catch (err) {
-      setCustomizeMessage(
-        err instanceof ApiClientError ? err.message : 'Could not save customize settings.',
-      );
+      setCustomizeMessage({
+        text: err instanceof ApiClientError ? err.message : 'Could not save customize settings.',
+        type: 'error',
+      });
     } finally {
       setCustomizeBusy(false);
     }
@@ -241,7 +258,7 @@ export function ProductEditDrawer({
           </Flex>
           {customizeMessage && (
             <Box marginTop="small">
-              <Text marginBottom="none">{customizeMessage}</Text>
+              <Message type={customizeMessage.type} messages={[{ text: customizeMessage.text }]} />
             </Box>
           )}
         </Panel>
