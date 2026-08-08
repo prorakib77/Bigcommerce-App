@@ -11,6 +11,17 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+// middleware.ts mints a fresh CSP nonce on every request and Next threads it
+// into its own inline hydration scripts by matching the nonce it finds on
+// the response's CSP header. That only works if the HTML is rendered fresh
+// per request: a statically prerendered page bakes in whatever nonce was
+// current at build/first-request time, which then mismatches every
+// subsequent request's freshly-generated header nonce and gets every inline
+// script blocked outright (confirmed in production: entirely blank app,
+// CSP script-src violations in the console). Forcing dynamic rendering here
+// cascades to every route below it.
+export const dynamic = 'force-dynamic';
+
 export default function RootLayout({ children }: { children: ReactNode }): React.JSX.Element {
   const mockMode = getEnv().MOCK_MODE;
 
