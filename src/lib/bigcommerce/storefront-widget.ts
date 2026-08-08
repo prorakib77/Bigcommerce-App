@@ -13,10 +13,17 @@
  *  - `document.currentScript` is available, i.e. Script Manager inserts a
  *    plain classic `<script src>` tag (not async/module) — used to recover
  *    the storeHash baked into this script's own `src` query string.
- *  - `window.BCData.product_attributes.id` exists — a Stencil/Cornerstone
- *    convention, absent on other themes or non-product pages.
  * Every one of these is checked defensively; absence is always a silent
  * no-op, never a thrown error.
+ *
+ * Finding the product id: `BCData.product_attributes.id` is tried first,
+ * but confirmed in production that at least one real theme's BCData omits
+ * `id` entirely from `product_attributes` (only sku/weight/price/etc. are
+ * present there). Falls back to the hidden `<input name="product_id">`
+ * every Stencil add-to-cart form must submit regardless of theme — a more
+ * fundamental, load-bearing convention than BCData's own optional shape,
+ * since BigCommerce's cart endpoint has no other way to know which product
+ * is being added.
  *
  * Finding the Add to Cart button: `#form-action-addToCart` (Cornerstone's
  * default id) is tried first as a fast path, but confirmed in production
@@ -49,6 +56,10 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
 
     var bcData = window.BCData;
     var productId = bcData && bcData.product_attributes && bcData.product_attributes.id;
+    if (!productId) {
+      var productIdInput = document.querySelector('input[name="product_id"]');
+      productId = productIdInput && productIdInput.value;
+    }
     if (!productId) return;
 
     var configUrl =
