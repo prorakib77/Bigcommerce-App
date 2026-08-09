@@ -70,8 +70,25 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     var storeHash = scriptUrl.searchParams.get('storeHash');
     if (!storeHash) return;
 
+    // Temporary, always-on diagnostic logging (prefixed so it's easy to spot
+    // and easy to grep out later) — this widget has repeatedly failed
+    // silently in production in ways that were only diagnosable by manually
+    // re-running its own logic in the console after the fact, which doesn't
+    // reveal *why* the real, first-pass execution came up empty. Safe to
+    // remove once storefront compatibility across themes is no longer in
+    // active development.
+    function log(msg) {
+      try {
+        if (window.console && console.log) console.log('[Kickflip Customize]', msg);
+      } catch (e) {
+        // no-op
+      }
+    }
+
     function init() {
     try {
+    log('init running, readyState=' + document.readyState);
+
     var productIdInput = document.querySelector('input[name="product_id"]');
 
     var bcData = window.BCData;
@@ -79,9 +96,14 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     if (!productId) {
       productId = productIdInput && productIdInput.value;
     }
-    if (!productId) return;
+    log('productId=' + productId + ' (input found=' + !!productIdInput + ', BCData.id=' + (bcData && bcData.product_attributes && bcData.product_attributes.id) + ')');
+    if (!productId) {
+      log('bailing: no productId resolved');
+      return;
+    }
 
     var searchScope = (productIdInput && productIdInput.closest('form')) || document;
+    log('searchScope=' + (searchScope === document ? 'document (no form found)' : 'scoped to form'));
 
     var configUrl =
       APP_BASE_URL +
@@ -170,11 +192,40 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       }, POLL_INTERVAL_MS);
     }
 
+    // TEMPORARY, for diagnosing storefront/theme compatibility across
+    // stores: always inserts a visibly-labeled test button next to the Add
+    // to Cart button, independent of whether any product on the page
+    // actually has Customize configured/enabled. Confirms the anchor-
+    // finding mechanics work on a given theme in isolation from the
+    // config-gated real button below. Safe to delete once storefront
+    // compatibility is no longer in active development.
+    waitForAddToCartAnchor(function (anchor) {
+      log('TEST button: anchor ' + (anchor ? 'found' : 'NOT found after polling'));
+      if (!anchor || !anchor.parentNode) return;
+      if (document.querySelector('[data-kickflip-test-button]')) return;
+
+      var testButton = document.createElement('button');
+      testButton.type = 'button';
+      testButton.setAttribute('data-kickflip-test-button', '');
+      testButton.textContent = 'Kickflip test button (visible = widget works)';
+      testButton.style.cssText =
+        'display:block;width:100%;margin-top:0.5rem;padding:0.5rem 1rem;' +
+        'font-size:0.8rem;font-weight:600;color:#fff;background:#e67e22;' +
+        'border:none;border-radius:4px;cursor:pointer;';
+      testButton.addEventListener('click', function () {
+        window.alert('Kickflip widget script found the Add to Cart button and can insert content here.');
+      });
+
+      anchor.parentNode.insertBefore(testButton, anchor.nextSibling);
+      log('TEST button: inserted');
+    });
+
     fetch(configUrl, { method: 'GET' })
       .then(function (res) {
         return res && res.ok ? res.json() : null;
       })
       .then(function (config) {
+        log('config response: ' + JSON.stringify(config));
         if (!config || !config.enabled || !config.customizeUrl) return;
 
         waitForAddToCartAnchor(function (addToCartBtn) {
@@ -201,7 +252,8 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
           addToCartBtn.parentNode.insertBefore(button, addToCartBtn.nextSibling);
         });
       })
-      .catch(function () {
+      .catch(function (err) {
+        log('config fetch FAILED: ' + err);
         // Best-effort only — never surface a broken storefront experience.
       });
     } catch (err) {
