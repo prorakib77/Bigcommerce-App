@@ -41,6 +41,15 @@
  * unscoped whole-document text scan risks matching one of those instead of
  * the actual product form's button, silently inserting the Customize
  * button somewhere the merchant never sees.
+ *
+ * DOM readiness: confirmed in production that BigCommerce doesn't reliably
+ * honor the requested footer placement — the script can execute before the
+ * product form has been parsed into the DOM at all, so every DOM-dependent
+ * step (reading `product_id`, searching for the Add to Cart button) is
+ * deferred to a `DOMContentLoaded` handler when the script runs while the
+ * document is still loading, and only reads `document.currentScript`
+ * synchronously up front — that reference goes stale (`null`) the instant
+ * the classic script finishes executing, so it cannot itself be deferred.
  */
 export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): string {
   const appBaseUrlLiteral = JSON.stringify(params.appBaseUrl);
@@ -61,6 +70,8 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     var storeHash = scriptUrl.searchParams.get('storeHash');
     if (!storeHash) return;
 
+    function init() {
+    try {
     var productIdInput = document.querySelector('input[name="product_id"]');
 
     var bcData = window.BCData;
@@ -193,6 +204,16 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       .catch(function () {
         // Best-effort only — never surface a broken storefront experience.
       });
+    } catch (err) {
+      // Never let a storefront-page error surface from this widget.
+    }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
   } catch (err) {
     // Never let a storefront-page error surface from this widget.
   }
