@@ -53,6 +53,15 @@ function mockScriptEndpoint(handler: () => Response) {
   );
 }
 
+function mockScriptUpdateEndpoint(handler: (uuid: string) => Response) {
+  mswServer.use(
+    http.put(
+      `${getEnv().BIGCOMMERCE_API_BASE_URL}/stores/teststore1/v3/content/scripts/:uuid`,
+      ({ params }) => handler(String(params.uuid)),
+    ),
+  );
+}
+
 // The install route also calls ensureOrdersWebhookRegistered right after
 // ensureStorefrontScriptRegistered (see src/app/api/bigcommerce/auth/route.ts).
 // With MOCK_MODE=false, that makes a second real outbound call this file
@@ -92,13 +101,13 @@ describe('Storefront Customize widget script registration', () => {
     expect(store.storefrontScriptRegisteredAt).not.toBeNull();
   });
 
-  it('does not re-register once a uuid is already cached on the store', async () => {
+  it('updates (not re-creates) the script once a uuid is already cached on the store', async () => {
     process.env.MOCK_MODE = 'false';
     __resetEnvCacheForTests();
 
-    let scriptCalls = 0;
+    let createCalls = 0;
     mockScriptEndpoint(() => {
-      scriptCalls += 1;
+      createCalls += 1;
       return HttpResponse.json({ data: { uuid: 'script-uuid-1', name: 'Customize widget' } });
     });
 
@@ -106,14 +115,25 @@ describe('Storefront Customize widget script registration', () => {
     mockHooksEndpointDefault();
     const { GET } = await import('@/app/api/bigcommerce/auth/route');
     await GET(new Request(installUrl()));
-    expect(scriptCalls).toBe(1);
+    expect(createCalls).toBe(1);
 
     // Second install (e.g. an uninstall/reinstall cycle) with the uuid
-    // already cached from the first — must not call Script Manager again.
+    // already cached from the first — must PUT (backfill consent_category
+    // on the existing script) rather than POST a duplicate.
+    let updateCalls = 0;
+    let updatedUuid: string | undefined;
+    mockScriptUpdateEndpoint((uuid): Response => {
+      updateCalls += 1;
+      updatedUuid = uuid;
+      return HttpResponse.json({ data: { uuid, name: 'Customize widget' } });
+    });
+
     mockTokenExchange();
     mockHooksEndpointDefault();
     await GET(new Request(installUrl()));
-    expect(scriptCalls).toBe(1);
+    expect(createCalls).toBe(1);
+    expect(updateCalls).toBe(1);
+    expect(updatedUuid).toBe('script-uuid-1');
   });
 
   it('still completes installation successfully even if script registration fails', async () => {

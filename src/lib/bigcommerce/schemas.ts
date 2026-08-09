@@ -156,6 +156,12 @@ export const bcScriptSchema = z
     location: z.enum(['head', 'footer']).optional(),
     visibility: z.enum(['storefront', 'checkout', 'order_confirmation', 'all_pages']).optional(),
     kind: z.enum(['src', 'script_tag']).optional(),
+    // Confirmed against live BigCommerce API docs (unlike the rest of this
+    // schema): defaults to 'unknown' when omitted, and BigCommerce silently
+    // does not display a script at all on any storefront with a customer
+    // cookie-consent banner enabled (e.g. Catalyst/c15t storefronts) unless
+    // this is set to a real category.
+    consent_category: z.enum(['essential', 'functional', 'analytics', 'targeting']).optional(),
   })
   .loose();
 export type BcScript = z.infer<typeof bcScriptSchema>;
