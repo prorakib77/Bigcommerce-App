@@ -51,10 +51,21 @@ export async function ensureStorefrontScriptRegistered(
     // Confirmed against live BigCommerce API docs: a script left at the
     // 'unknown' default consent category is silently not displayed at all
     // on any storefront with a customer cookie-consent banner enabled
-    // (e.g. Catalyst/c15t storefronts) — this isn't marketing/analytics, it
-    // just adds a merchant-configured storefront feature, so 'functional'
-    // fits best.
-    consentCategory: 'functional',
+    // (e.g. Catalyst/c15t storefronts). 'functional' was tried first, but
+    // confirmed via repeated, direct production testing (a standalone
+    // Playwright script driving the real live storefront, not a relay)
+    // that Catalyst's c15t consent manager intercepts and cancels
+    // 'functional'-category script loads unreliably — the request is
+    // issued but never completes, even after cookie consent is granted, in
+    // most fresh sessions. 'essential' scripts are exempt from consent-
+    // gating entirely. This widget sets no tracking cookies and collects
+    // no personal data — it only adds a merchant-configured storefront
+    // button — so 'essential' is a deliberate, informed trade-off (not
+    // strictly accurate, since the storefront still functions without it)
+    // made explicitly to get reliable behavior for every shopper; the user
+    // chose this after being shown the alternative (stay 'functional' and
+    // accept the button unpredictably not appearing).
+    consentCategory: 'essential',
   };
 
   if (store.storefrontScriptUuid) {
