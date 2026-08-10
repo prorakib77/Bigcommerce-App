@@ -43,13 +43,24 @@
  * button somewhere the merchant never sees.
  *
  * The product_id input (and therefore the form scope) is re-resolved from
- * `document` on every single poll attempt rather than captured once —
- * confirmed necessary in production on a React-rendered (Makeswift)
- * storefront: the framework replaces the entire product form with a new
- * DOM subtree during its own render pass, so a scope captured once early
- * goes stale/detached and every subsequent query against it silently
- * returns nothing, no matter how long polling continues, even though a
- * live, matching button exists elsewhere in the (new) DOM the whole time.
+ * `document` on every single check rather than captured once — confirmed
+ * necessary in production on a React-rendered (Makeswift) storefront: the
+ * framework replaces the entire product form with a new DOM subtree during
+ * its own render pass, so a scope captured once early goes stale/detached
+ * and every subsequent query against it silently returns nothing, even
+ * though a live, matching button exists elsewhere in the (new) DOM the
+ * whole time.
+ *
+ * Insertion is driven by a MutationObserver on `document.body`, not a
+ * time-bounded poll — a React-rendered storefront can re-render (and
+ * replace) the product form repeatedly over the page's lifetime, not just
+ * once during initial load, so a poll that gives up after N seconds can
+ * miss a button that only exists after that window, and — more subtly —
+ * can't recover if a later re-render removes an already-inserted button.
+ * The observer re-attempts insertion on every DOM mutation for as long as
+ * the page is open; the "already inserted" marker-attribute check makes
+ * repeated attempts a no-op once successful, so this is cheap and self-
+ * healing rather than a busy-loop.
  *
  * DOM readiness: confirmed in production that BigCommerce doesn't reliably
  * honor the requested footer placement — the script can execute before the
@@ -163,8 +174,6 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     }
 
     var ADD_TO_CART_TEXT = /add\s*to\s*cart/i;
-    var POLL_INTERVAL_MS = 400;
-    var MAX_POLL_ATTEMPTS = 40; // ~16s — generous for late client-rendered buttons
 
     function findAddToCartAnchor() {
       var byId = document.getElementById('form-action-addToCart');
@@ -187,21 +196,16 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       return null;
     }
 
-    function waitForAddToCartAnchor(callback) {
-      var anchor = findAddToCartAnchor();
-      if (anchor) {
-        callback(anchor);
-        return;
-      }
-      var attempts = 0;
-      var timer = setInterval(function () {
-        attempts++;
-        var found = findAddToCartAnchor();
-        if (found || attempts >= MAX_POLL_ATTEMPTS) {
-          clearInterval(timer);
-          callback(found);
-        }
-      }, POLL_INTERVAL_MS);
+    // Runs tryInsert immediately, then again on every DOM mutation for as
+    // long as the page is open — see the file-level comment on why this
+    // replaces a time-bounded poll. tryInsert must itself be idempotent
+    // (safe to call repeatedly, a no-op once its target is already present).
+    function keepEnsuring(tryInsert) {
+      tryInsert();
+      var observer = new MutationObserver(function () {
+        tryInsert();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
     }
 
     // TEMPORARY, for diagnosing storefront/theme compatibility across
@@ -211,8 +215,8 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     // finding mechanics work on a given theme in isolation from the
     // config-gated real button below. Safe to delete once storefront
     // compatibility is no longer in active development.
-    waitForAddToCartAnchor(function (anchor) {
-      log('TEST button: anchor ' + (anchor ? 'found' : 'NOT found after polling'));
+    keepEnsuring(function () {
+      var anchor = findAddToCartAnchor();
       if (!anchor || !anchor.parentNode) return;
       if (document.querySelector('[data-kickflip-test-button]')) return;
 
@@ -240,11 +244,9 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         log('config response: ' + JSON.stringify(config));
         if (!config || !config.enabled || !config.customizeUrl) return;
 
-        waitForAddToCartAnchor(function (addToCartBtn) {
+        keepEnsuring(function () {
+          var addToCartBtn = findAddToCartAnchor();
           if (!addToCartBtn || !addToCartBtn.parentNode) return;
-          // Guards against a duplicate insert if this script somehow runs
-          // more than once on the same page (e.g. a client-side router
-          // re-navigation without a full reload).
           if (document.querySelector('[data-kickflip-customize-button]')) return;
 
           var label = config.buttonLabel || 'Customize';
@@ -262,6 +264,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
           });
 
           addToCartBtn.parentNode.insertBefore(button, addToCartBtn.nextSibling);
+          log('Customize button: inserted');
         });
       })
       .catch(function (err) {
