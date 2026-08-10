@@ -42,6 +42,15 @@
  * the actual product form's button, silently inserting the Customize
  * button somewhere the merchant never sees.
  *
+ * The product_id input (and therefore the form scope) is re-resolved from
+ * `document` on every single poll attempt rather than captured once —
+ * confirmed necessary in production on a React-rendered (Makeswift)
+ * storefront: the framework replaces the entire product form with a new
+ * DOM subtree during its own render pass, so a scope captured once early
+ * goes stale/detached and every subsequent query against it silently
+ * returns nothing, no matter how long polling continues, even though a
+ * live, matching button exists elsewhere in the (new) DOM the whole time.
+ *
  * DOM readiness: confirmed in production that BigCommerce doesn't reliably
  * honor the requested footer placement — the script can execute before the
  * product form has been parsed into the DOM at all, so every DOM-dependent
@@ -102,9 +111,6 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       return;
     }
 
-    var searchScope = (productIdInput && productIdInput.closest('form')) || document;
-    log('searchScope=' + (searchScope === document ? 'document (no form found)' : 'scoped to form'));
-
     var configUrl =
       APP_BASE_URL +
       '/api/public/storefront/customize-config?storeHash=' +
@@ -164,7 +170,13 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       var byId = document.getElementById('form-action-addToCart');
       if (byId) return byId;
 
-      var candidates = searchScope.querySelectorAll(
+      // Re-resolved on every call, not captured once — see the file-level
+      // comment above on why a stale/detached scope silently finds nothing
+      // forever on frameworks that replace the form's DOM subtree.
+      var currentProductIdInput = document.querySelector('input[name="product_id"]');
+      var scope = (currentProductIdInput && currentProductIdInput.closest('form')) || document;
+
+      var candidates = scope.querySelectorAll(
         'button, input[type="submit"], input[type="button"], a[role="button"]',
       );
       for (var i = 0; i < candidates.length; i++) {
