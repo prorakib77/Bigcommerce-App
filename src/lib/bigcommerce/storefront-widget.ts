@@ -200,12 +200,31 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     // long as the page is open — see the file-level comment on why this
     // replaces a time-bounded poll. tryInsert must itself be idempotent
     // (safe to call repeatedly, a no-op once its target is already present).
+    //
+    // Watches characterData too, not just childList: confirmed in
+    // production (via a direct, controlled reproduction of this exact
+    // search against the live DOM) that the anchor-finding logic is
+    // correct and the button is genuinely present with matching text
+    // moments after load, yet the widget's own first-pass execution still
+    // found nothing — pointing at a React update that changes the button's
+    // label by mutating an existing text node in place (e.g. swapping a
+    // loading state for final text) rather than by adding/removing
+    // elements, which a childList-only observer never sees. A low-
+    // frequency interval fallback runs alongside it as a second line of
+    // defense, since this storefront has repeatedly done things standard
+    // assumptions didn't cover.
     function keepEnsuring(tryInsert) {
       tryInsert();
       var observer = new MutationObserver(function () {
         tryInsert();
       });
-      observer.observe(document.body, { childList: true, subtree: true });
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+      });
+      setInterval(tryInsert, 2000);
     }
 
     // TEMPORARY, for diagnosing storefront/theme compatibility across
