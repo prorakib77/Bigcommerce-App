@@ -227,34 +227,6 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       setInterval(tryInsert, 2000);
     }
 
-    // TEMPORARY, for diagnosing storefront/theme compatibility across
-    // stores: always inserts a visibly-labeled test button next to the Add
-    // to Cart button, independent of whether any product on the page
-    // actually has Customize configured/enabled. Confirms the anchor-
-    // finding mechanics work on a given theme in isolation from the
-    // config-gated real button below. Safe to delete once storefront
-    // compatibility is no longer in active development.
-    keepEnsuring(function () {
-      var anchor = findAddToCartAnchor();
-      if (!anchor || !anchor.parentNode) return;
-      if (document.querySelector('[data-kickflip-test-button]')) return;
-
-      var testButton = document.createElement('button');
-      testButton.type = 'button';
-      testButton.setAttribute('data-kickflip-test-button', '');
-      testButton.textContent = 'Kickflip test button (visible = widget works)';
-      testButton.style.cssText =
-        'display:block;width:100%;margin-top:0.5rem;padding:0.5rem 1rem;' +
-        'font-size:0.8rem;font-weight:600;color:#fff;background:#e67e22;' +
-        'border:none;border-radius:4px;cursor:pointer;';
-      testButton.addEventListener('click', function () {
-        window.alert('Kickflip widget script found the Add to Cart button and can insert content here.');
-      });
-
-      anchor.parentNode.insertBefore(testButton, anchor.nextSibling);
-      log('TEST button: inserted');
-    });
-
     fetch(configUrl, { method: 'GET' })
       .then(function (res) {
         return res && res.ok ? res.json() : null;
