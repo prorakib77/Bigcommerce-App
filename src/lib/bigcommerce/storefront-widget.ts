@@ -265,6 +265,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
 
         keepEnsuring(function () {
           var addToCartBtn = findAddToCartAnchor();
+          log('real button attempt: anchorFound=' + !!addToCartBtn + ' alreadyInserted=' + !!document.querySelector('[data-kickflip-customize-button]'));
           if (!addToCartBtn || !addToCartBtn.parentNode) return;
           if (document.querySelector('[data-kickflip-customize-button]')) return;
 
