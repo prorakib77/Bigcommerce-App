@@ -259,13 +259,17 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       .then(function (res) {
         return res && res.ok ? res.json() : null;
       })
-      .then(function (config) {
+      .then(function (body) {
+        // The API wraps its payload as { data: {...}, meta: {...} } — same
+        // convention as every other route in this app — so the actual
+        // enabled/customizeUrl/buttonLabel fields live under body.data, not
+        // on body directly.
+        var config = body && body.data;
         log('config response: ' + JSON.stringify(config));
         if (!config || !config.enabled || !config.customizeUrl) return;
 
         keepEnsuring(function () {
           var addToCartBtn = findAddToCartAnchor();
-          log('real button attempt: anchorFound=' + !!addToCartBtn + ' alreadyInserted=' + !!document.querySelector('[data-kickflip-customize-button]'));
           if (!addToCartBtn || !addToCartBtn.parentNode) return;
           if (document.querySelector('[data-kickflip-customize-button]')) return;
 
