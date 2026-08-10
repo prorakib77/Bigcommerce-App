@@ -173,7 +173,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       document.body.appendChild(overlay);
     }
 
-    var ADD_TO_CART_TEXT = /add\s*to\s*cart/i;
+    var ADD_TO_CART_TEXT = /add\\s*to\\s*cart/i;
 
     function findAddToCartAnchor() {
       var byId = document.getElementById('form-action-addToCart');
