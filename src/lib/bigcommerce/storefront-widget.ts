@@ -70,6 +70,31 @@
  * document is still loading, and only reads `document.currentScript`
  * synchronously up front — that reference goes stale (`null`) the instant
  * the classic script finishes executing, so it cannot itself be deferred.
+ *
+ * Cart integration (FLAGGED, see docs/api-assumptions.md for the full
+ * writeup on both of these):
+ *  - Listens for Kickflip's own `mczrAddToCart` postMessage from inside the
+ *    customizer iframe (confirmed against Kickflip's help docs, not a
+ *    guess: https://help.gokickflip.com/en/articles/4586872-custom-integration)
+ *    and rejects anything whose `event.origin` doesn't match the
+ *    customizer's own origin — the one input-validation boundary this
+ *    addition introduces.
+ *  - Adds to the real BigCommerce cart via the client-side Storefront Cart
+ *    API (`/api/storefront/carts`, camelCase body — confirmed against live
+ *    BigCommerce docs this session, a different casing convention than the
+ *    v3 REST APIs used everywhere else in this app). This call is same-
+ *    origin (this script executes as part of the storefront page itself),
+ *    so no CORS/relay is needed. Kickflip's own calculated price is *not*
+ *    passed through — BigCommerce's cart API has no mechanism to accept an
+ *    arbitrary custom price for a catalog line item, only a pre-configured
+ *    Modifier's own price adjuster can affect price. The `designId` is
+ *    attached via `optionSelections` on a Modifier auto-created per product
+ *    (src/services/product-customize-service.ts::ensureDesignReferenceModifier)
+ *    and then hidden from ordinary shoppers via `hideModifierField` below,
+ *    using this exact store's own confirmed DOM convention
+ *    (`id="attribute-{modifierId}"`) — best-effort; degrades to "field
+ *    visible" rather than breaking anything if a different theme doesn't
+ *    share that convention.
  */
 export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): string {
   const appBaseUrlLiteral = JSON.stringify(params.appBaseUrl);
@@ -129,7 +154,80 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       '&productId=' +
       encodeURIComponent(String(productId));
 
-    function openCustomizeOverlay(url, label) {
+    // Adds the configured product to the real BigCommerce cart via the
+    // client-side Storefront Cart API, attaching the Kickflip designId via
+    // the auto-registered Modifier's optionSelections when available. See
+    // the file-level comment for the confirmed API shape and its
+    // limitations (no custom price passthrough).
+    function addToRealCart(detail, modifierId, showStatus) {
+      var qtyInput = document.querySelector('input[name="qty[]"]');
+      var quantity = (qtyInput && parseInt(qtyInput.value, 10)) || 1;
+
+      var lineItem = { productId: productId, quantity: quantity };
+      if (modifierId && detail && detail.designId !== undefined && detail.designId !== null) {
+        lineItem.optionSelections = [{ optionId: modifierId, optionValue: String(detail.designId) }];
+      }
+
+      showStatus('Adding to cart…', false);
+
+      fetch('/api/storefront/carts', { method: 'GET', credentials: 'include' })
+        .then(function (res) {
+          if (!res || res.status === 404) return null;
+          return res.ok ? res.json() : null;
+        })
+        .then(function (cart) {
+          if (cart && cart.id) {
+            return fetch('/api/storefront/carts/' + cart.id + '/items', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ lineItems: [lineItem] }),
+            });
+          }
+          return fetch('/api/storefront/carts', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lineItems: [lineItem] }),
+          });
+        })
+        .then(function (res) {
+          if (!res || !res.ok) {
+            throw new Error('cart request failed, status=' + (res && res.status));
+          }
+          log('Added to cart via Kickflip design ' + (detail && detail.designId));
+          showStatus('Added to cart! Redirecting…', false);
+          setTimeout(function () {
+            window.location.href = '/cart.php';
+          }, 900);
+        })
+        .catch(function (err) {
+          log('addToRealCart FAILED: ' + err);
+          showStatus(
+            'Could not add to cart automatically. Please close this window and use the Add to Cart button.',
+            true,
+          );
+        });
+    }
+
+    // Best-effort: hides the auto-registered design-reference Modifier field
+    // from ordinary shoppers (it's filled by addToRealCart above, never by
+    // hand). Uses this exact store's own confirmed rendering convention —
+    // see the file-level comment. Idempotent and safe to call repeatedly.
+    function hideModifierField(modifierId) {
+      try {
+        var field = document.getElementById('attribute-' + modifierId);
+        if (!field) return;
+        var wrapper = (field.closest && field.closest('.form-field')) || field;
+        if (wrapper.getAttribute('data-kickflip-hidden') === 'true') return;
+        wrapper.style.display = 'none';
+        wrapper.setAttribute('data-kickflip-hidden', 'true');
+      } catch (err) {
+        // no-op — best-effort only.
+      }
+    }
+
+    function openCustomizeOverlay(url, label, modifierId) {
       var overlay = document.createElement('div');
       overlay.style.cssText =
         'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);' +
@@ -149,9 +247,39 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         'border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);' +
         'font-size:1.25rem;line-height:1;cursor:pointer;z-index:1;';
 
+      var statusBar = document.createElement('div');
+      statusBar.style.cssText =
+        'position:absolute;left:0;right:0;bottom:0;padding:0.6rem 1rem;' +
+        'font:600 0.85rem/1.3 system-ui,sans-serif;text-align:center;color:#fff;' +
+        'display:none;z-index:1;';
+
+      function showStatus(message, isError) {
+        statusBar.textContent = message;
+        statusBar.style.background = isError ? '#c0392b' : '#2c3e50';
+        statusBar.style.display = 'block';
+      }
+
       var iframe = document.createElement('iframe');
       iframe.src = url;
       iframe.style.cssText = 'width:100%;height:100%;border:0;display:block;';
+
+      var customizerOrigin = null;
+      try {
+        customizerOrigin = new URL(url).origin;
+      } catch (e) {
+        // no-op — origin check below simply never matches, so no cart-add
+        // ever fires; the overlay still works as a plain iframe viewer.
+      }
+
+      function onKickflipMessage(e) {
+        try {
+          if (!e.data || e.data.eventName !== 'mczrAddToCart') return;
+          if (!customizerOrigin || e.origin !== customizerOrigin) return;
+          addToRealCart(e.data.detail, modifierId, showStatus);
+        } catch (err) {
+          log('onKickflipMessage error: ' + err);
+        }
+      }
 
       function onKeydown(e) {
         if (e.key === 'Escape') close();
@@ -159,6 +287,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       function close() {
         if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         document.removeEventListener('keydown', onKeydown);
+        window.removeEventListener('message', onKickflipMessage);
       }
 
       closeBtn.addEventListener('click', close);
@@ -166,9 +295,11 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         if (e.target === overlay) close();
       });
       document.addEventListener('keydown', onKeydown);
+      window.addEventListener('message', onKickflipMessage);
 
       panel.appendChild(closeBtn);
       panel.appendChild(iframe);
+      panel.appendChild(statusBar);
       overlay.appendChild(panel);
       document.body.appendChild(overlay);
     }
@@ -241,6 +372,8 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         if (!config || !config.enabled || !config.customizeUrl) return;
 
         keepEnsuring(function () {
+          if (config.modifierId) hideModifierField(config.modifierId);
+
           var addToCartBtn = findAddToCartAnchor();
           if (!addToCartBtn || !addToCartBtn.parentNode) return;
           if (document.querySelector('[data-kickflip-customize-button]')) return;
@@ -256,7 +389,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
             'border:none;border-radius:4px;cursor:pointer;';
 
           button.addEventListener('click', function () {
-            openCustomizeOverlay(config.customizeUrl, label);
+            openCustomizeOverlay(config.customizeUrl, label, config.modifierId);
           });
 
           addToCartBtn.parentNode.insertBefore(button, addToCartBtn.nextSibling);

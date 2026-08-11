@@ -53,3 +53,20 @@ export async function upsertCustomizeConfig(
     },
   });
 }
+
+/**
+ * Records the BigCommerce Modifier option_id auto-created to carry the
+ * Kickflip designId through checkout — see
+ * src/services/product-customize-service.ts::ensureDesignReferenceModifier.
+ * Same `updateMany` no-throw-if-missing convention as
+ * store-repository.ts::updateStorefrontScriptRegistration.
+ */
+export async function updateKickflipModifierId(
+  configId: string,
+  modifierId: number,
+): Promise<void> {
+  await prisma.productCustomizeConfig.updateMany({
+    where: { id: configId },
+    data: { kickflipModifierId: modifierId },
+  });
+}

@@ -242,3 +242,78 @@ the Developer Portal (paralleling the documented `store_v2_products`/`store_v2_p
 pair for the Products scope). If install starts failing on a scope mismatch after a merchant sets
 Orders to Read-Only and reinstalls, this is the first place to check — fix in one place
 (`BIGCOMMERCE_APP_SCOPES`'s default in `src/server/env/schema.ts`).
+
+## Kickflip's `mczrAddToCart` postMessage contract
+
+**Confirmed, not a guess** — this one is verified against Kickflip's own published help docs
+(https://help.gokickflip.com/en/articles/4586872-custom-integration, fetched live this session,
+not derived from the project brief). When a shopper clicks Add to Cart *inside* the Kickflip
+customizer iframe, it fires `window.postMessage({ eventName: 'mczrAddToCart', detail: {...} },
+'*')` to the parent window. `detail` includes `designId`, `price`, `productId`/
+`customizerProductId` (Kickflip's own internal ids — **not** BigCommerce's product id, a
+different id space entirely), `designImage`, `summary`, `configuration`. Listened for in
+`src/lib/bigcommerce/storefront-widget.ts::openCustomizeOverlay`, gated on `event.origin`
+matching the customizer's own origin (derived from the already-known `customizeUrl`) — the one
+new input-validation boundary this feature introduces, since postMessage content is otherwise
+unauthenticated by design.
+
+## BigCommerce Product Modifiers API
+
+**Assumed, not confirmed against live BigCommerce docs this session**: `src/lib/bigcommerce/modifiers.ts`
+(`createModifier`) and `bcModifierSchema` (`src/lib/bigcommerce/schemas.ts`) assume
+`POST /catalog/products/{id}/modifiers` accepts `{ type: 'text', display_name, required: false,
+config: { text_max_length } }` and returns an object with a numeric `id` (the `option_id` later
+referenced from `optionSelections` when adding to cart — see below). WebFetch attempts against
+BigCommerce's live docs this session came back with an incomplete required-field list, so this
+is a best-effort shape, not a confirmed one. If wrong: only `modifiers.ts` and `bcModifierSchema`
+need to change — `ensureDesignReferenceModifier`
+(`src/services/product-customize-service.ts`, the only caller) depends on the adapter's return
+type, not the raw response, and is already wrapped non-fatally (same `MOCK_MODE` gate and
+fire-and-forget call-site pattern as every other self-heal registration in this app) — a failure
+here degrades to "cart-add still works, just without the design reference attached," never a
+broken save or a broken storefront.
+
+## BigCommerce Storefront Cart API
+
+**Partially confirmed this session, partially still an assumption.** Confirmed against live
+BigCommerce docs: the client-side Storefront Cart API uses **camelCase** field names
+(`lineItems`, `productId`, `quantity`, `optionSelections`, `optionId`, `optionValue`) — a
+different casing convention than every other BigCommerce API this app talks to, which are all v3
+REST (`snake_case`). Confirmed request shapes:
+
+```jsonc
+// POST /api/storefront/carts — create a new cart
+{ "lineItems": [{ "productId": 86, "quantity": 1 }] }
+
+// POST /api/storefront/carts/{cartId}/items — add to an existing cart
+{ "lineItems": [{ "productId": 230, "quantity": 2, "optionSelections": [{ "optionId": 10, "optionValue": 117 }] }] }
+```
+
+`GET /api/storefront/carts` is confirmed to return a single Cart object (not an array) when one
+exists, and a 404 when it doesn't (an empty cart is deleted, not returned empty) — used in
+`addToRealCart` (`storefront-widget.ts`) to decide whether to create a new cart or add to the
+existing one.
+
+**Still an open assumption, not yet verified against a real add**: whether `optionValue` accepts
+an arbitrary string for a `text`-type modifier the same way it accepts a numeric choice id for a
+`select`-type one (the confirmed example above uses a numeric `optionValue` for what's presumably
+a choice-based modifier, not a free-text one). If BigCommerce rejects a string `optionValue` for a
+text modifier, `addToRealCart`'s `.catch()` surfaces a visible in-overlay error to the shopper
+("Could not add to cart automatically...") rather than silently failing — check `[Kickflip
+Customize]`-prefixed console logs on a live add attempt first if this is ever reported broken.
+
+**Deliberately out of scope, not a bug**: Kickflip's own calculated `price` (from the
+`mczrAddToCart` payload) is never sent — there is no BigCommerce cart-API mechanism to set a
+custom price on a catalog line item, only a modifier's own fixed price adjuster can affect price.
+The cart charges the product's normal BigCommerce price regardless of the Kickflip configuration
+chosen.
+
+## BigCommerce Stencil modifier field DOM convention (`id="attribute-{id}"`)
+
+**Confirmed directly on the specific storefront this was built against** (not a guess): a
+BigCommerce-rendered Modifier field uses `id="attribute-{modifierId}"` /
+`name="attribute[{modifierId}]"`, observed on this store's own live product pages this session.
+`hideModifierField()` (`storefront-widget.ts`) uses this to hide the auto-created design-reference
+field from ordinary shoppers. Best-effort and degrades gracefully: if a different theme uses a
+different convention, the field simply stays visible (labeled "Kickflip design reference") rather
+than breaking anything.

@@ -221,3 +221,25 @@ export const bcHookSchema = z
   })
   .loose();
 export type BcHook = z.infer<typeof bcHookSchema>;
+
+// ---------------------------------------------------------------------------
+// Product Modifiers API (src/lib/bigcommerce/modifiers.ts)
+//
+// FLAG: every field/enum value here is an unverified assumption about
+// BigCommerce's `/catalog/products/{id}/modifiers` V3 shape, not confirmed
+// against live docs this session — same treatment as bcScriptSchema/
+// bcHookSchema above. See docs/api-assumptions.md for the full writeup.
+// ---------------------------------------------------------------------------
+
+export const bcModifierSchema = z
+  .object({
+    id: z.number().optional(),
+    product_id: z.number().optional(),
+    name: z.string().optional(),
+    display_name: z.string(),
+    type: z.string(),
+    required: z.boolean().optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
+  })
+  .loose();
+export type BcModifier = z.infer<typeof bcModifierSchema>;

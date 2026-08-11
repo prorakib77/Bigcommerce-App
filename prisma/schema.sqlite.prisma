@@ -296,6 +296,11 @@ model ProductCustomizeConfig {
   enabled              Boolean  @default(false)
   customizeUrl         String?
   buttonLabel          String   @default("Customize")
+  // BigCommerce Product Modifier option_id auto-created on this product to
+  // carry the Kickflip designId through checkout onto the order — see
+  // src/services/product-customize-service.ts::ensureDesignReferenceModifier
+  // and docs/api-assumptions.md.
+  kickflipModifierId   Int?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

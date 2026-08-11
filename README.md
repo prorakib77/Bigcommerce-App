@@ -132,7 +132,13 @@ and the in-app Help page for more):
   an iframe overlay. See [Storefront Customize button](#storefront-customize-button). This app
   still does not embed, proxy, or otherwise integrate with the Kickflip configurator itself —
   the iframe target is opaque to this app.
-- Dynamic storefront pricing or BigCommerce cart integration with the customizer
+- **Partially walked back:** dynamic storefront pricing or BigCommerce cart integration with the
+  customizer — clicking Add to Cart *inside* the Kickflip customizer now does add the product to
+  the real BigCommerce cart with the chosen design attached to the order (see
+  [Storefront Customize button](#storefront-customize-button)). What's still excluded: Kickflip's
+  own calculated price never carries through to BigCommerce — the cart always charges the
+  product's normal BigCommerce price, since BigCommerce's cart API has no mechanism to accept a
+  custom price for a catalog line item.
 - Live cart / "add to cart" / abandoned-cart activity tracking — explicitly deferred, out of
   scope for this release. Only *completed* orders are synced; see [Orders sync](#orders-sync).
 - **Partially walked back:** "Order synchronization or automatic fulfillment" — this app now
@@ -334,6 +340,17 @@ directly under Add to Cart; clicking it opens the configured URL in an overlay i
 - **Known limitation**: no reconciliation job re-verifies the script still exists on
   BigCommerce's side if a merchant manually deletes it from Script Manager — a deliberate scope
   cut (see `docs/api-assumptions.md`).
+- **Real cart integration (Kickflip customizer only)**: when the customizer iframe fires
+  Kickflip's own `mczrAddToCart` postMessage event, the widget script adds the product to the
+  shopper's real BigCommerce cart via the client-side Storefront Cart API and continues to
+  checkout normally. The specific design chosen is attached to the order via a hidden,
+  auto-registered BigCommerce Product Modifier (`kickflipModifierId` on `ProductCustomizeConfig`,
+  `src/services/product-customize-service.ts::ensureDesignReferenceModifier`) so the merchant can
+  look up the exact design (via Kickflip's own admin, using the stored `designId`) for
+  fulfillment. **Price does not carry through**: BigCommerce's cart API has no mechanism to accept
+  a custom price for a catalog line item, so the cart always charges the product's normal
+  BigCommerce price regardless of the Kickflip configuration chosen — see
+  `docs/api-assumptions.md` for the full writeup and its still-open assumptions.
 
 ## Orders sync
 
