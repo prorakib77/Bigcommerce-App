@@ -361,7 +361,18 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     }
 
     function addToRealCart(detail, modifierId, showStatus, panel) {
-      var missingGroups = getRequiredOptionGroups()
+      var allGroups = getRequiredOptionGroups();
+      log(
+        'required groups found: ' +
+          JSON.stringify(
+            allGroups.map(function (g) {
+              return { optionId: g.optionId, label: g.label, filled: isGroupFilled(g), elCount: g.els.length };
+            }),
+          ) +
+          ' modifierId=' +
+          modifierId,
+      );
+      var missingGroups = allGroups
         .filter(function (g) {
           return g.optionId !== modifierId;
         })
