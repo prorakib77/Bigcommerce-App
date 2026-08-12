@@ -323,8 +323,31 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
             if (!isTextarea) input.type = sample.type || 'text';
             input.style.cssText = 'width:100%;padding:0.4rem;font-size:1rem;box-sizing:border-box;';
             fieldWrap.appendChild(input);
+            log(
+              'sample captured: id=' +
+                sample.id +
+                ' name=' +
+                sample.name +
+                ' inDocument=' +
+                document.contains(sample),
+            );
             appliers.push(function () {
+              log(
+                'applying to sample id=' +
+                  sample.id +
+                  ' inDocument=' +
+                  document.contains(sample) +
+                  ' newValue=' +
+                  input.value,
+              );
               sample.value = input.value;
+              sample.setAttribute('value', input.value);
+              log(
+                'after assign: sample.value=' +
+                  sample.value +
+                  ' liveLookup.value=' +
+                  (document.getElementById(sample.id) ? document.getElementById(sample.id).value : 'N/A'),
+              );
             });
           }
 
