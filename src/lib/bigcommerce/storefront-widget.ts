@@ -323,32 +323,8 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
             if (!isTextarea) input.type = sample.type || 'text';
             input.style.cssText = 'width:100%;padding:0.4rem;font-size:1rem;box-sizing:border-box;';
             fieldWrap.appendChild(input);
-            window.__kickflipDebugInput = input;
-            log(
-              'sample captured: id=' +
-                sample.id +
-                ' name=' +
-                sample.name +
-                ' inDocument=' +
-                document.contains(sample),
-            );
             appliers.push(function () {
-              log(
-                'applying to sample id=' +
-                  sample.id +
-                  ' inDocument=' +
-                  document.contains(sample) +
-                  ' newValue=' +
-                  input.value,
-              );
               sample.value = input.value;
-              sample.setAttribute('value', input.value);
-              log(
-                'after assign: sample.value=' +
-                  sample.value +
-                  ' liveLookup.value=' +
-                  (document.getElementById(sample.id) ? document.getElementById(sample.id).value : 'N/A'),
-              );
             });
           }
 
@@ -362,13 +338,11 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
           'display:block;width:100%;padding:0.65rem 1rem;font-size:1rem;font-weight:600;' +
           'color:#fff;background:#3c64f4;border:none;border-radius:4px;cursor:pointer;';
         continueBtn.addEventListener('click', function () {
-          log('continueBtn clicked, applying ' + appliers.length + ' appliers');
-          appliers.forEach(function (apply, idx) {
+          appliers.forEach(function (apply) {
             try {
               apply();
-              log('applier ' + idx + ' ran OK');
             } catch (err) {
-              log('applier ' + idx + ' THREW: ' + err);
+              // no-op — best-effort only.
             }
           });
           if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
@@ -387,18 +361,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     }
 
     function addToRealCart(detail, modifierId, showStatus, panel) {
-      var allGroups = getRequiredOptionGroups();
-      log(
-        'required groups found: ' +
-          JSON.stringify(
-            allGroups.map(function (g) {
-              return { optionId: g.optionId, label: g.label, filled: isGroupFilled(g), elCount: g.els.length };
-            }),
-          ) +
-          ' modifierId=' +
-          modifierId,
-      );
-      var missingGroups = allGroups
+      var missingGroups = getRequiredOptionGroups()
         .filter(function (g) {
           return g.optionId !== modifierId;
         })
