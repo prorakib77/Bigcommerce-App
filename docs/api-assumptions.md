@@ -305,10 +305,17 @@ only submitted its own designId modifier, so every add-to-cart on that product f
 `collectFormOptionSelections()`, which reads every existing `attribute[N]` field already present
 on the native Add to Cart form (text/textarea/select/checked radio/checked checkbox) and forwards
 each one's current value alongside the designId modifier — the same set of fields the native Add
-to Cart button itself would submit. This does not solve the case where such a field is required
-*and* empty (the shopper never had a reason to fill in "Engraved text" while using the Kickflip
-overlay) — that's a genuine, unavoidable per-product UX gap, not a bug in this app; the error
-surfaces visibly in the overlay rather than failing silently.
+to Cart button itself would submit.
+
+That alone isn't sufficient when such a field is required *and still empty* — the shopper never
+had a reason to fill in "Engraved text" while using the Kickflip overlay, so forwarding an empty
+value still gets a 422 (confirmed live: reproduced the exact same error again after the first fix,
+via a full simulated `mczrAddToCart` flow with a real `getRequiredOptionGroups()` scan showing
+`attribute[236]` still unfilled). `getRequiredOptionGroups()` / `promptForMissingFields()`
+(`storefront-widget.ts`) close this gap: before calling the Cart API, `addToRealCart` checks for
+any other required attribute group that's still unfilled, and if any exist, renders a small inline
+form inside the overlay asking for those values, writes the answers back into the real underlying
+form fields, then retries — rather than surfacing an unexplained "could not add to cart" error.
 
 **Confirmed live this session (2026-08-12)**: a `text`-type modifier accepts an arbitrary string
 `optionValue` (verified with a real add to a real cart: `attribute[236]` — a `text`-type,

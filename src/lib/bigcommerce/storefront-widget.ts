@@ -108,6 +108,17 @@
  *    which reads every existing `attribute[N]` field already on the native
  *    Add to Cart form and forwards it alongside the designId modifier — the
  *    same fields the native button itself would have submitted.
+ *  - That alone isn't enough when a required field is *empty* — the shopper
+ *    never had a reason to fill in "Engraved text" while using the Kickflip
+ *    overlay, so `collectFormOptionSelections` forwarding an empty value
+ *    still gets a 422. `getRequiredOptionGroups`/`promptForMissingFields`
+ *    close that gap: before calling the Cart API, `addToRealCart` checks for
+ *    any other required attribute group that's still unfilled and, if any
+ *    exist, renders a small inline form inside the overlay asking for those
+ *    values, writes the answers back into the real underlying form fields,
+ *    then retries. Confirmed live this session: this was the actual reason
+ *    a real merchant's product ("Engraved text", required) kept failing
+ *    even after the previous fix.
  */
 export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): string {
   const appBaseUrlLiteral = JSON.stringify(params.appBaseUrl);
@@ -205,7 +216,166 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       return selections;
     }
 
-    function addToRealCart(detail, modifierId, showStatus) {
+    // Finds every OTHER required attribute[N] group on the native form (not
+    // the Kickflip designId modifier itself), grouped by optionId so a
+    // radio/checkbox set counts as one group rather than one per input.
+    function getRequiredOptionGroups() {
+      var currentProductIdInput = document.querySelector('input[name="product_id"]');
+      var form = currentProductIdInput && currentProductIdInput.closest('form');
+      if (!form) return [];
+
+      var groups = {};
+      var order = [];
+      var fields = form.querySelectorAll('[name^="attribute["]');
+      for (var i = 0; i < fields.length; i++) {
+        var el = fields[i];
+        if (!el.required) continue;
+        var match = /^attribute\[(\d+)\]/.exec(el.name || '');
+        if (!match) continue;
+        var optionId = parseInt(match[1], 10);
+        if (!groups[optionId]) {
+          var wrapper = (el.closest && el.closest('.form-field')) || el.parentNode;
+          var labelEl = wrapper && wrapper.querySelector && wrapper.querySelector('label');
+          var labelText = labelEl ? labelEl.textContent.replace(/required/i, '').trim() : 'Option ' + optionId;
+          groups[optionId] = { optionId: optionId, label: labelText, els: [] };
+          order.push(optionId);
+        }
+        groups[optionId].els.push(el);
+      }
+      return order.map(function (id) {
+        return groups[id];
+      });
+    }
+
+    function isGroupFilled(group) {
+      for (var i = 0; i < group.els.length; i++) {
+        var el = group.els[i];
+        if (el.type === 'checkbox' || el.type === 'radio') {
+          if (el.checked) return true;
+        } else if (el.value) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // Renders a small inline form inside the overlay asking the shopper to
+    // fill in whatever required field(s) BigCommerce needs that Kickflip's
+    // own customizer never asks about (e.g. a merchant-configured "Engraved
+    // text" field). Writes their answers back into the real, underlying
+    // Add to Cart form fields (not just an internal copy), then re-runs the
+    // cart-add. Never blocks silently — this is what actually makes "add to
+    // cart from inside the customizer" possible for a product that has its
+    // own required customization on top of Kickflip's.
+    function promptForMissingFields(missingGroups, panel, showStatus, onContinue) {
+      try {
+        var wrap = document.createElement('div');
+        wrap.style.cssText =
+          'position:absolute;left:0;right:0;bottom:0;max-height:70%;overflow:auto;' +
+          'background:#fff;border-top:1px solid #ddd;padding:1rem;' +
+          'font:400 0.9rem/1.4 system-ui,sans-serif;z-index:2;box-shadow:0 -4px 16px rgba(0,0,0,0.15);';
+
+        var heading = document.createElement('div');
+        heading.textContent = 'A couple more details are needed before this can be added to your cart:';
+        heading.style.cssText = 'font-weight:600;margin-bottom:0.75rem;';
+        wrap.appendChild(heading);
+
+        var appliers = [];
+
+        missingGroups.forEach(function (group) {
+          var fieldWrap = document.createElement('div');
+          fieldWrap.style.cssText = 'margin-bottom:0.75rem;';
+
+          var labelNode = document.createElement('label');
+          labelNode.textContent = group.label;
+          labelNode.style.cssText = 'display:block;font-weight:600;margin-bottom:0.25rem;';
+          fieldWrap.appendChild(labelNode);
+
+          var sample = group.els[0];
+
+          if (sample.tagName === 'SELECT') {
+            var select = sample.cloneNode(true);
+            select.removeAttribute('id');
+            select.style.cssText = 'width:100%;padding:0.4rem;font-size:1rem;';
+            fieldWrap.appendChild(select);
+            appliers.push(function () {
+              sample.value = select.value;
+            });
+          } else if (sample.type === 'radio' || sample.type === 'checkbox') {
+            group.els.forEach(function (optEl) {
+              var optWrapper = (optEl.closest && optEl.closest('label')) || optEl.parentNode;
+              var optLabel = optWrapper ? optWrapper.textContent.trim() : optEl.value;
+              var choiceLabel = document.createElement('label');
+              choiceLabel.style.cssText = 'display:block;font-weight:400;margin-bottom:0.25rem;';
+              var choiceInput = document.createElement('input');
+              choiceInput.type = optEl.type;
+              choiceInput.name = 'kickflip-missing-' + group.optionId;
+              choiceLabel.appendChild(choiceInput);
+              choiceLabel.appendChild(document.createTextNode(' ' + optLabel));
+              fieldWrap.appendChild(choiceLabel);
+              appliers.push(function () {
+                if (choiceInput.checked) optEl.checked = true;
+              });
+            });
+          } else {
+            var isTextarea = sample.tagName === 'TEXTAREA';
+            var input = document.createElement(isTextarea ? 'textarea' : 'input');
+            if (!isTextarea) input.type = sample.type || 'text';
+            input.style.cssText = 'width:100%;padding:0.4rem;font-size:1rem;box-sizing:border-box;';
+            fieldWrap.appendChild(input);
+            appliers.push(function () {
+              sample.value = input.value;
+            });
+          }
+
+          wrap.appendChild(fieldWrap);
+        });
+
+        var continueBtn = document.createElement('button');
+        continueBtn.type = 'button';
+        continueBtn.textContent = 'Continue';
+        continueBtn.style.cssText =
+          'display:block;width:100%;padding:0.65rem 1rem;font-size:1rem;font-weight:600;' +
+          'color:#fff;background:#3c64f4;border:none;border-radius:4px;cursor:pointer;';
+        continueBtn.addEventListener('click', function () {
+          appliers.forEach(function (apply) {
+            try {
+              apply();
+            } catch (err) {
+              // no-op — best-effort only.
+            }
+          });
+          if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+          onContinue();
+        });
+        wrap.appendChild(continueBtn);
+
+        panel.appendChild(wrap);
+      } catch (err) {
+        log('promptForMissingFields error: ' + err);
+        showStatus(
+          'Could not add to cart automatically. Please close this window and use the Add to Cart button.',
+          true,
+        );
+      }
+    }
+
+    function addToRealCart(detail, modifierId, showStatus, panel) {
+      var missingGroups = getRequiredOptionGroups()
+        .filter(function (g) {
+          return g.optionId !== modifierId;
+        })
+        .filter(function (g) {
+          return !isGroupFilled(g);
+        });
+
+      if (missingGroups.length) {
+        promptForMissingFields(missingGroups, panel, showStatus, function () {
+          addToRealCart(detail, modifierId, showStatus, panel);
+        });
+        return;
+      }
+
       var qtyInput = document.querySelector('input[name="qty[]"]');
       var quantity = (qtyInput && parseInt(qtyInput.value, 10)) || 1;
 
@@ -332,7 +502,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         try {
           if (!e.data || e.data.eventName !== 'mczrAddToCart') return;
           if (!customizerOrigin || e.origin !== customizerOrigin) return;
-          addToRealCart(e.data.detail, modifierId, showStatus);
+          addToRealCart(e.data.detail, modifierId, showStatus, panel);
         } catch (err) {
           log('onKickflipMessage error: ' + err);
         }
