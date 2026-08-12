@@ -310,13 +310,11 @@ to Cart button itself would submit. This does not solve the case where such a fi
 overlay) — that's a genuine, unavoidable per-product UX gap, not a bug in this app; the error
 surfaces visibly in the overlay rather than failing silently.
 
-**Still an open assumption, not yet verified against a real add**: whether `optionValue` accepts
-an arbitrary string for a `text`-type modifier the same way it accepts a numeric choice id for a
-`select`-type one (the confirmed example above uses a numeric `optionValue` for what's presumably
-a choice-based modifier, not a free-text one). If BigCommerce rejects a string `optionValue` for a
-text modifier, `addToRealCart`'s `.catch()` surfaces a visible in-overlay error to the shopper
-("Could not add to cart automatically...") rather than silently failing — check `[Kickflip
-Customize]`-prefixed console logs on a live add attempt first if this is ever reported broken.
+**Confirmed live this session (2026-08-12)**: a `text`-type modifier accepts an arbitrary string
+`optionValue` (verified with a real add to a real cart: `attribute[236]` — a `text`-type,
+merchant-configured modifier — accepted `optionValue: "TEST ENGRAVING"` and returned `200` with the
+line item present in the cart). The Kickflip designId modifier is the same `text` type, so the
+same shape applies.
 
 **Deliberately out of scope, not a bug**: Kickflip's own calculated `price` (from the
 `mczrAddToCart` payload) is never sent — there is no BigCommerce cart-API mechanism to set a
