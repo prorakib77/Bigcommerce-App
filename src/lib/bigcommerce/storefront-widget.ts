@@ -203,7 +203,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       var fields = form.querySelectorAll('[name^="attribute["]');
       for (var i = 0; i < fields.length; i++) {
         var el = fields[i];
-        var match = /^attribute\[(\d+)\]/.exec(el.name || '');
+        var match = /^attribute\\[(\\d+)\\]/.exec(el.name || '');
         if (!match) continue;
         var optionId = parseInt(match[1], 10);
 
@@ -230,7 +230,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       for (var i = 0; i < fields.length; i++) {
         var el = fields[i];
         if (!el.required) continue;
-        var match = /^attribute\[(\d+)\]/.exec(el.name || '');
+        var match = /^attribute\\[(\\d+)\\]/.exec(el.name || '');
         if (!match) continue;
         var optionId = parseInt(match[1], 10);
         if (!groups[optionId]) {

@@ -273,6 +273,26 @@ fire-and-forget call-site pattern as every other self-heal registration in this 
 here degrades to "cart-add still works, just without the design reference attached," never a
 broken save or a broken storefront.
 
+## Widget generation: regex literals must double-escape inside the outer template literal
+
+**Root-caused a serious live bug this session, the same bug class as the earlier `\s`→`s`
+incident.** `renderStorefrontWidgetScript` (`storefront-widget.ts`) builds the whole widget as one
+big TS template literal. A regex literal written with a *single* backslash inside that outer
+string (`/^attribute\[(\d+)\]/`) has its backslashes silently stripped by TypeScript's own
+template-literal parsing, producing `/^attribute[(d+)]/` in the actual generated script — a
+character class matching one of `(`, `d`, `+`, `)`, which never matches `attribute[236]` at all.
+This shipped in `collectFormOptionSelections` and `getRequiredOptionGroups` for one full deploy
+cycle: `.exec()` always returned `null`, so **no `attribute[N]` field was ever forwarded**,
+silently defeating both fixes below. Confirmed live via a direct reproduction: fetched the exact
+deployed script text and found the mangled regex verbatim. Fixed by double-escaping
+(`\\[`, `\\d`, `\\]`) so a single backslash survives into the runtime string, matching the
+existing, already-correct pattern in `ADD_TO_CART_TEXT` (`/add\\s*to\\s*cart/i`). **Any new regex
+literal added to this file's returned template string must use this same double-escaping** — this
+is easy to get wrong again and won't show up in `pnpm typecheck`/`pnpm lint`, only in the
+generated output's actual runtime behavior. Verify with `node --check` on the generated script
+*and* a direct string/regex test, not just a syntax check — the earlier `\s` bug was syntactically
+valid too.
+
 ## BigCommerce Storefront Cart API
 
 **Partially confirmed this session, partially still an assumption.** Confirmed against live
