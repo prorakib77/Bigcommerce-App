@@ -289,10 +289,26 @@ REST (`snake_case`). Confirmed request shapes:
 { "lineItems": [{ "productId": 230, "quantity": 2, "optionSelections": [{ "optionId": 10, "optionValue": 117 }] }] }
 ```
 
-`GET /api/storefront/carts` is confirmed to return a single Cart object (not an array) when one
-exists, and a 404 when it doesn't (an empty cart is deleted, not returned empty) — used in
-`addToRealCart` (`storefront-widget.ts`) to decide whether to create a new cart or add to the
-existing one.
+**Confirmed live this session (2026-08-12), corrects an earlier wrong assumption**: `GET
+/api/storefront/carts` returns `200` with body `[]` (an empty array) when the shopper has no
+existing cart on this store — not a `404`, and not a single Cart object. `addToRealCart`
+(`storefront-widget.ts`) handles both an array and a bare object defensively (`Array.isArray(body)
+? body[0] : body`) since this may vary by store/theme.
+
+**Confirmed live this session, root-caused a real production failure**: BigCommerce rejects the
+*entire* `POST` with a `422` (`"This product requires modifier options"`) if the product has any
+other **required** Modifier and the request's `optionSelections` doesn't include a value for it —
+completely independent of Kickflip's own auto-created modifier. Reproduced directly against
+fab-bricks.com/santa-minifig/: the product has a merchant-configured required text modifier
+("Engraved text", `id="attribute-236"`) unrelated to Kickflip, and the original `addToRealCart`
+only submitted its own designId modifier, so every add-to-cart on that product failed. Fixed by
+`collectFormOptionSelections()`, which reads every existing `attribute[N]` field already present
+on the native Add to Cart form (text/textarea/select/checked radio/checked checkbox) and forwards
+each one's current value alongside the designId modifier — the same set of fields the native Add
+to Cart button itself would submit. This does not solve the case where such a field is required
+*and* empty (the shopper never had a reason to fill in "Engraved text" while using the Kickflip
+overlay) — that's a genuine, unavoidable per-product UX gap, not a bug in this app; the error
+surfaces visibly in the overlay rather than failing silently.
 
 **Still an open assumption, not yet verified against a real add**: whether `optionValue` accepts
 an arbitrary string for a `text`-type modifier the same way it accepts a numeric choice id for a

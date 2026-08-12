@@ -95,6 +95,19 @@
  *    (`id="attribute-{modifierId}"`) — best-effort; degrades to "field
  *    visible" rather than breaking anything if a different theme doesn't
  *    share that convention.
+ *  - `GET /api/storefront/carts` confirmed live: when the shopper has no
+ *    existing cart, it returns `200` with body `[]` (an empty array), not a
+ *    `404` and not a single Cart object as originally assumed. Handled
+ *    defensively by unwrapping an array if one comes back.
+ *  - A product can carry its own merchant-configured required Modifier that
+ *    has nothing to do with Kickflip (confirmed live: a required "Engraved
+ *    text" field on a real product). `addToRealCart` used to submit only
+ *    its own designId modifier, so BigCommerce rejected the *entire* add
+ *    with a 422 ("This product requires modifier options") on any product
+ *    with another required modifier. Fixed by `collectFormOptionSelections`,
+ *    which reads every existing `attribute[N]` field already on the native
+ *    Add to Cart form and forwards it alongside the designId modifier — the
+ *    same fields the native button itself would have submitted.
  */
 export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): string {
   const appBaseUrlLiteral = JSON.stringify(params.appBaseUrl);
@@ -159,14 +172,53 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     // the auto-registered Modifier's optionSelections when available. See
     // the file-level comment for the confirmed API shape and its
     // limitations (no custom price passthrough).
+    // Reads every existing attribute[N] field from the real Add to Cart
+    // form (text/textarea/select/checked radio/checked checkbox) and turns
+    // it into an optionSelections entry. Confirmed necessary in production:
+    // a product can carry its own merchant-configured required Modifier
+    // completely unrelated to Kickflip (e.g. a required "Engraved text"
+    // field) — addToRealCart used to submit only its own designId modifier,
+    // so BigCommerce rejected the whole add with a 422 ("This product
+    // requires modifier options") on any product with another required
+    // modifier. This makes the widget forward whatever the shopper already
+    // entered on the page, the same way the native Add to Cart button would.
+    function collectFormOptionSelections() {
+      var selections = [];
+      var currentProductIdInput = document.querySelector('input[name="product_id"]');
+      var form = currentProductIdInput && currentProductIdInput.closest('form');
+      if (!form) return selections;
+
+      var seen = {};
+      var fields = form.querySelectorAll('[name^="attribute["]');
+      for (var i = 0; i < fields.length; i++) {
+        var el = fields[i];
+        var match = /^attribute\[(\d+)\]/.exec(el.name || '');
+        if (!match) continue;
+        var optionId = parseInt(match[1], 10);
+
+        if ((el.type === 'checkbox' || el.type === 'radio') && !el.checked) continue;
+        if (seen[optionId]) continue;
+
+        seen[optionId] = true;
+        selections.push({ optionId: optionId, optionValue: el.value });
+      }
+      return selections;
+    }
+
     function addToRealCart(detail, modifierId, showStatus) {
       var qtyInput = document.querySelector('input[name="qty[]"]');
       var quantity = (qtyInput && parseInt(qtyInput.value, 10)) || 1;
 
-      var lineItem = { productId: productId, quantity: quantity };
+      var optionSelections = collectFormOptionSelections();
       if (modifierId && detail && detail.designId !== undefined && detail.designId !== null) {
-        lineItem.optionSelections = [{ optionId: modifierId, optionValue: String(detail.designId) }];
+        optionSelections = optionSelections.filter(function (sel) {
+          return sel.optionId !== modifierId;
+        });
+        optionSelections.push({ optionId: modifierId, optionValue: String(detail.designId) });
       }
+
+      var lineItem = { productId: productId, quantity: quantity };
+      if (optionSelections.length) lineItem.optionSelections = optionSelections;
 
       showStatus('Adding to cart…', false);
 
@@ -175,7 +227,12 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
           if (!res || res.status === 404) return null;
           return res.ok ? res.json() : null;
         })
-        .then(function (cart) {
+        .then(function (body) {
+          // Confirmed in production: a 200 with no existing cart returns an
+          // empty array ([]), not a 404 and not a single Cart object as
+          // originally assumed — handle both an array and a bare object so
+          // whichever shape a given store returns still resolves correctly.
+          var cart = Array.isArray(body) ? body[0] : body;
           if (cart && cart.id) {
             return fetch('/api/storefront/carts/' + cart.id + '/items', {
               method: 'POST',
