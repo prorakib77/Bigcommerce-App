@@ -323,6 +323,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
             if (!isTextarea) input.type = sample.type || 'text';
             input.style.cssText = 'width:100%;padding:0.4rem;font-size:1rem;box-sizing:border-box;';
             fieldWrap.appendChild(input);
+            window.__kickflipDebugInput = input;
             log(
               'sample captured: id=' +
                 sample.id +
