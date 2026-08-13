@@ -294,6 +294,117 @@ describe('renderStorefrontWidgetScript', () => {
     expect(storefrontPosts).toEqual([]);
   });
 
+  it('shows dynamic additional and live prices in the customize modal', async () => {
+    const dom = new JSDOM(
+      `
+      <form>
+        <input name="product_id" value="86" />
+        <div class="form-field form-submit-container" data-product-add>
+          <button id="form-action-addToCart" type="submit">Add to Cart</button>
+        </div>
+      </form>
+      `,
+      { runScripts: 'outside-only', url: 'https://fab-bricks.com/santa-minifig/' },
+    );
+
+    const { window } = dom;
+    (window as Window & { BCData?: unknown }).BCData = {
+      product_attributes: {
+        id: 86,
+        price: {
+          with_tax: {
+            formatted: '£8.00',
+            value: 8,
+            currency: 'GBP',
+          },
+        },
+      },
+    };
+
+    const scriptEl = window.document.createElement('script');
+    scriptEl.src =
+      'https://bigcommerce-app-ten.vercel.app/api/public/storefront/widget?storeHash=abc123';
+    Object.defineProperty(window.document, 'currentScript', {
+      configurable: true,
+      get: () => scriptEl,
+    });
+
+    class NoopMutationObserver {
+      observe(): void {
+        // no-op
+      }
+    }
+
+    window.MutationObserver = NoopMutationObserver as unknown as typeof window.MutationObserver;
+    window.setInterval = vi.fn(() => 0) as unknown as typeof window.setInterval;
+
+    window.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.includes('/api/public/storefront/customize-config')) {
+        return Response.json({
+          data: {
+            enabled: true,
+            customizeUrl: 'https://customizer.example.com/embed/abc',
+            buttonLabel: 'Customize',
+            modifierId: null,
+            summaryModifierId: null,
+          },
+        });
+      }
+
+      throw new Error(`Unexpected fetch ${method} ${url}`);
+    }) as unknown as typeof window.fetch;
+
+    window.eval(
+      renderStorefrontWidgetScript({ appBaseUrl: 'https://bigcommerce-app-ten.vercel.app' }),
+    );
+    window.document.dispatchEvent(new window.Event('DOMContentLoaded'));
+    await flushPromises(4);
+
+    const customizeButton = window.document.querySelector(
+      '[data-kickflip-customize-button]',
+    ) as HTMLButtonElement | null;
+    customizeButton?.click();
+
+    const priceBar = window.document.querySelector(
+      '[data-kickflip-modal-price]',
+    ) as HTMLElement | null;
+    const additionalPrice = priceBar?.querySelector(
+      '[data-kickflip-modal-price-value="additional"]',
+    );
+    const livePrice = priceBar?.querySelector('[data-kickflip-modal-price-value="live"]');
+    expect(additionalPrice?.textContent).toBe('+ £0.00');
+    expect(livePrice?.textContent).toBe('£8.00');
+
+    window.dispatchEvent(
+      new window.MessageEvent('message', {
+        origin: 'https://customizer.example.com',
+        data: {
+          eventName: 'kickflipPriceChanged',
+          detail: { price: 2.5 },
+        },
+      }),
+    );
+
+    expect(additionalPrice?.textContent).toBe('+ £2.50');
+    expect(livePrice?.textContent).toBe('£10.50');
+
+    window.dispatchEvent(
+      new window.MessageEvent('message', {
+        origin: 'https://customizer.example.com',
+        data: {
+          eventName: 'kickflipPriceChanged',
+          detail: { price: -1.25 },
+        },
+      }),
+    );
+
+    expect(additionalPrice?.textContent).toBe('- £1.25');
+    expect(livePrice?.textContent).toBe('£6.75');
+  });
+
   it('formats Kickflip cart metadata as visible question answer rows', async () => {
     const dom = new JSDOM(
       `

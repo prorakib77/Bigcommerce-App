@@ -665,6 +665,99 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       return (Math.round(value * 100) / 100).toFixed(2);
     }
 
+    function getCurrencySymbolFromFormatted(formatted) {
+      var text = cleanSummaryText(formatted);
+      if (!text) return '';
+      var match = /^([^0-9.,\\s-]+)/.exec(text);
+      return match ? match[1] : '';
+    }
+
+    function currencySymbolForCode(currencyCode) {
+      var normalized = cleanSummaryText(currencyCode).toUpperCase();
+      if (normalized === 'GBP') return '£';
+      if (normalized === 'USD' || normalized === 'CAD' || normalized === 'AUD' || normalized === 'NZD') {
+        return '$';
+      }
+      if (normalized === 'EUR') return '€';
+      return normalized ? normalized + ' ' : '£';
+    }
+
+    function getBaseProductPriceInfo() {
+      var bcPrice =
+        window.BCData &&
+        window.BCData.product_attributes &&
+        window.BCData.product_attributes.price;
+      var candidates = [
+        bcPrice && bcPrice.with_tax,
+        bcPrice && bcPrice.without_tax,
+        bcPrice && bcPrice.price,
+        bcPrice,
+      ];
+
+      for (var i = 0; i < candidates.length; i++) {
+        var candidate = candidates[i];
+        var amount = parseMoney(candidate && candidate.value !== undefined ? candidate.value : candidate);
+        if (amount === null) continue;
+        var formatted = candidate && candidate.formatted;
+        var currency = candidate && candidate.currency;
+        return {
+          amount: amount,
+          currency: cleanSummaryText(currency),
+          symbol: getCurrencySymbolFromFormatted(formatted) || currencySymbolForCode(currency),
+        };
+      }
+
+      var selectors = [
+        '[itemprop="price"]',
+        '.price--withTax',
+        '.price--withoutTax',
+        '[data-product-price]',
+        '.productView-price',
+        '.price-section',
+      ];
+      for (var j = 0; j < selectors.length; j++) {
+        var el = document.querySelector(selectors[j]);
+        if (!el) continue;
+        var raw = el.getAttribute('content') || el.getAttribute('data-product-price') || el.textContent;
+        var parsed = parseMoney(raw);
+        if (parsed !== null) {
+          return {
+            amount: parsed,
+            currency: '',
+            symbol: getCurrencySymbolFromFormatted(raw) || '£',
+          };
+        }
+      }
+
+      return { amount: null, currency: '', symbol: '£' };
+    }
+
+    function formatMoneyForDisplay(value, priceInfo) {
+      var symbol = (priceInfo && priceInfo.symbol) || '£';
+      return symbol + Math.abs(value).toFixed(2);
+    }
+
+    function formatSignedMoneyForDisplay(value, priceInfo) {
+      return (value < 0 ? '- ' : '+ ') + formatMoneyForDisplay(value, priceInfo);
+    }
+
+    function getPriceDetailFromMessageData(data) {
+      if (!data || typeof data !== 'object') return null;
+      var candidates = [data.detail, data.payload, data.data, data];
+      for (var i = 0; i < candidates.length; i++) {
+        var candidate = candidates[i];
+        if (!candidate || typeof candidate !== 'object') continue;
+        if (
+          parseMoney(candidate.price) !== null ||
+          sumMoneyEntries(candidate.customExtraPrices) !== null ||
+          (candidate.pricing && typeof candidate.pricing === 'object')
+        ) {
+          return candidate;
+        }
+      }
+      return null;
+    }
+
     function getCurrentVariantId() {
       var selectors = [
         'input[name="variant_id"]',
@@ -1078,6 +1171,60 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         statusBar.style.display = 'block';
       }
 
+      var priceInfo = getBaseProductPriceInfo();
+      var currentPriceAdjustment = 0;
+      var priceBar = document.createElement('div');
+      priceBar.setAttribute('data-kickflip-modal-price', '');
+      priceBar.style.cssText =
+        'position:absolute;top:0.75rem;left:0.75rem;max-width:calc(100% - 4.75rem);' +
+        'display:flex;align-items:stretch;gap:0.5rem;flex-wrap:wrap;z-index:2;' +
+        'font:600 0.82rem/1.2 system-ui,sans-serif;color:#111;';
+
+      function makePriceCell(labelText, valueKey) {
+        var cell = document.createElement('div');
+        cell.style.cssText =
+          'background:rgba(255,255,255,0.96);border:1px solid rgba(0,0,0,0.12);' +
+          'border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,0.15);padding:0.42rem 0.58rem;';
+
+        var labelNode = document.createElement('div');
+        labelNode.textContent = labelText;
+        labelNode.style.cssText =
+          'font-size:0.66rem;text-transform:uppercase;letter-spacing:0;color:#5c6470;margin-bottom:0.15rem;';
+
+        var valueNode = document.createElement('div');
+        valueNode.setAttribute('data-kickflip-modal-price-value', valueKey);
+        valueNode.style.cssText = 'font-size:0.95rem;white-space:nowrap;';
+
+        cell.appendChild(labelNode);
+        cell.appendChild(valueNode);
+        priceBar.appendChild(cell);
+        return valueNode;
+      }
+
+      var additionalPriceValue = makePriceCell('Additional price', 'additional');
+      var livePriceValue = makePriceCell('Live price', 'live');
+
+      function renderModalPrice() {
+        additionalPriceValue.textContent = formatSignedMoneyForDisplay(currentPriceAdjustment, priceInfo);
+        if (priceInfo.amount === null) {
+          livePriceValue.textContent = formatMoneyForDisplay(currentPriceAdjustment, priceInfo);
+          return;
+        }
+        livePriceValue.textContent = formatMoneyForDisplay(
+          Math.max(0, priceInfo.amount + currentPriceAdjustment),
+          priceInfo,
+        );
+      }
+
+      function updateModalPriceFromDetail(detail) {
+        var adjustment = getKickflipPriceAdjustment(detail);
+        if (adjustment === null) return;
+        currentPriceAdjustment = adjustment;
+        renderModalPrice();
+      }
+
+      renderModalPrice();
+
       var iframe = document.createElement('iframe');
       iframe.src = url;
       iframe.style.cssText = 'width:100%;height:100%;border:0;display:block;';
@@ -1092,8 +1239,10 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
 
       function onKickflipMessage(e) {
         try {
-          if (!e.data || e.data.eventName !== 'mczrAddToCart') return;
           if (!customizerOrigin || e.origin !== customizerOrigin) return;
+          var priceDetail = getPriceDetailFromMessageData(e.data);
+          if (priceDetail) updateModalPriceFromDetail(priceDetail);
+          if (!e.data || e.data.eventName !== 'mczrAddToCart') return;
           addToRealCart(e.data.detail, modifierId, summaryModifierId, showStatus, panel);
         } catch (err) {
           log('onKickflipMessage error: ' + err);
@@ -1117,6 +1266,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       window.addEventListener('message', onKickflipMessage);
 
       panel.appendChild(closeBtn);
+      panel.appendChild(priceBar);
       panel.appendChild(iframe);
       panel.appendChild(statusBar);
       overlay.appendChild(panel);
