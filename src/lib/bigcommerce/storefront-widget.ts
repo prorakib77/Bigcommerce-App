@@ -119,6 +119,12 @@
  *    then retries. Confirmed live this session: this was the actual reason
  *    a real merchant's product ("Engraved text", required) kept failing
  *    even after the previous fix.
+ *  - Kickflip-selected customization choices are sent through a second
+ *    auto-created text Modifier (`summaryModifierId` in the public config).
+ *    It is hidden on the product page like the design-reference field, but
+ *    submitted with a readable `Label: Value` summary so the cart/order shows
+ *    the selections as normal line-item option metadata. This is intentionally
+ *    not a BigCommerce variant or custom price integration.
  */
 export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): string {
   const appBaseUrlLiteral = JSON.stringify(params.appBaseUrl);
@@ -193,6 +199,8 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     // requires modifier options") on any product with another required
     // modifier. This makes the widget forward whatever the shopper already
     // entered on the page, the same way the native Add to Cart button would.
+    var KICKFLIP_SUMMARY_MAX_LENGTH = 1000;
+
     function collectFormOptionSelections() {
       var selections = [];
       var currentProductIdInput = document.querySelector('input[name="product_id"]');
@@ -216,13 +224,238 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       return selections;
     }
 
+    function cleanSummaryText(value) {
+      if (value === undefined || value === null) return '';
+      if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+      if (typeof value !== 'string') return '';
+      return value.replace(/\\s+/g, ' ').trim();
+    }
+
+    function humanizeSummaryKey(key) {
+      return cleanSummaryText(
+        String(key)
+          .replace(/[_-]+/g, ' ')
+          .replace(/([a-z])([A-Z])/g, '$1 $2'),
+      );
+    }
+
+    function isIgnoredSummaryKey(key) {
+      var normalized = String(key || '').toLowerCase();
+      return (
+        normalized === 'designid' ||
+        normalized === 'price' ||
+        normalized === 'quantity' ||
+        normalized === 'productid' ||
+        normalized === 'customizerproductid' ||
+        normalized === 'variantid' ||
+        normalized === 'sku' ||
+        normalized === 'url' ||
+        normalized.indexOf('image') !== -1 ||
+        normalized.indexOf('thumbnail') !== -1 ||
+        normalized.indexOf('preview') !== -1
+      );
+    }
+
+    function isMediaLikeSummaryValue(value) {
+      var text = cleanSummaryText(value).toLowerCase();
+      return (
+        text.indexOf('http://') === 0 ||
+        text.indexOf('https://') === 0 ||
+        text.indexOf('data:image') === 0
+      );
+    }
+
+    function pickSummaryValue(obj, keys) {
+      for (var i = 0; i < keys.length; i++) {
+        var value = obj && obj[keys[i]];
+        if (value !== undefined && value !== null && value !== '') return value;
+      }
+      return null;
+    }
+
+    function stringifySummaryValue(value) {
+      if (value === undefined || value === null) return '';
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return cleanSummaryText(value);
+      }
+      if (Array.isArray(value)) {
+        var parts = [];
+        for (var i = 0; i < value.length; i++) {
+          var part = stringifySummaryValue(value[i]);
+          if (part) parts.push(part);
+        }
+        return parts.join(', ');
+      }
+      if (typeof value === 'object') {
+        return cleanSummaryText(
+          pickSummaryValue(value, [
+            'label',
+            'name',
+            'displayName',
+            'title',
+            'value',
+            'valueName',
+            'selectedValue',
+            'selectedValueName',
+            'text',
+          ]),
+        );
+      }
+      return '';
+    }
+
+    function buildKickflipSelectionSummary(detail) {
+      try {
+        if (!detail || typeof detail !== 'object') return '';
+
+        var rows = [];
+        var seenRows = {};
+
+        function addRow(label, value) {
+          var cleanLabel = cleanSummaryText(label);
+          var cleanValue = cleanSummaryText(value);
+          if (!cleanValue || isMediaLikeSummaryValue(cleanValue)) return;
+
+          var row = cleanLabel ? cleanLabel + ': ' + cleanValue : cleanValue;
+          if (seenRows[row]) return;
+          seenRows[row] = true;
+          rows.push(row);
+        }
+
+        function appendPrimitive(value, label) {
+          var text = cleanSummaryText(value);
+          if (!text) return;
+          if (label) {
+            addRow(label, text);
+            return;
+          }
+
+          var rawLines = String(value)
+            .replace(/\\r\\n/g, '\\n')
+            .replace(/\\r/g, '\\n')
+            .split('\\n');
+          for (var i = 0; i < rawLines.length; i++) {
+            var line = cleanSummaryText(rawLines[i]);
+            if (line) addRow('', line);
+          }
+        }
+
+        function appendValue(value, label, depth) {
+          if (value === undefined || value === null || depth > 5) return;
+
+          if (
+            typeof value === 'string' ||
+            typeof value === 'number' ||
+            typeof value === 'boolean'
+          ) {
+            appendPrimitive(value, label);
+            return;
+          }
+
+          if (Array.isArray(value)) {
+            for (var i = 0; i < value.length; i++) {
+              appendValue(value[i], label, depth + 1);
+            }
+            return;
+          }
+
+          if (typeof value !== 'object') return;
+
+          var explicitLabel = stringifySummaryValue(
+            pickSummaryValue(value, [
+              'label',
+              'name',
+              'displayName',
+              'optionName',
+              'groupName',
+              'stepName',
+              'category',
+              'customization',
+              'field',
+              'group',
+              'option',
+              'title',
+            ]),
+          );
+          var explicitValue = pickSummaryValue(value, [
+            'selectedValue',
+            'selectedValueName',
+            'selected',
+            'selectedChoice',
+            'selection',
+            'choice',
+            'choiceName',
+            'value',
+            'valueName',
+            'optionValue',
+            'text',
+          ]);
+
+          if (explicitValue !== null) {
+            addRow(explicitLabel || label, stringifySummaryValue(explicitValue));
+            return;
+          }
+
+          var keys = Object.keys(value);
+          for (var j = 0; j < keys.length; j++) {
+            var key = keys[j];
+            if (isIgnoredSummaryKey(key)) continue;
+            appendValue(value[key], label || humanizeSummaryKey(key), depth + 1);
+          }
+        }
+
+        [
+          'summary',
+          'configuration',
+          'config',
+          'options',
+          'selectedOptions',
+          'selectedVariants',
+          'selections',
+          'variants',
+          'choices',
+          'items',
+        ].forEach(function (key) {
+          appendValue(detail[key], '', 0);
+        });
+
+        if (!rows.length) {
+          Object.keys(detail).forEach(function (key) {
+            if (isIgnoredSummaryKey(key)) return;
+            appendValue(detail[key], humanizeSummaryKey(key), 0);
+          });
+        }
+
+        var summary = rows.join('\\n');
+        if (summary.length > KICKFLIP_SUMMARY_MAX_LENGTH) {
+          summary = summary.slice(0, KICKFLIP_SUMMARY_MAX_LENGTH - 3).trim() + '...';
+        }
+        return summary;
+      } catch (err) {
+        log('buildKickflipSelectionSummary error: ' + err);
+        return '';
+      }
+    }
+
+    function withoutOptionSelection(selections, optionId) {
+      if (!optionId) return selections;
+      return selections.filter(function (sel) {
+        return sel.optionId !== optionId;
+      });
+    }
+
     // Finds every OTHER required attribute[N] group on the native form (not
-    // the Kickflip designId modifier itself), grouped by optionId so a
+    // the Kickflip metadata modifiers themselves), grouped by optionId so a
     // radio/checkbox set counts as one group rather than one per input.
-    function getRequiredOptionGroups() {
+    function getRequiredOptionGroups(ignoredModifierIds) {
       var currentProductIdInput = document.querySelector('input[name="product_id"]');
       var form = currentProductIdInput && currentProductIdInput.closest('form');
       if (!form) return [];
+
+      var ignored = {};
+      (ignoredModifierIds || []).forEach(function (id) {
+        if (id) ignored[id] = true;
+      });
 
       var groups = {};
       var order = [];
@@ -233,6 +466,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         var match = /^attribute\\[(\\d+)\\]/.exec(el.name || '');
         if (!match) continue;
         var optionId = parseInt(match[1], 10);
+        if (ignored[optionId]) continue;
         if (!groups[optionId]) {
           var wrapper = (el.closest && el.closest('.form-field')) || el.parentNode;
           var labelEl = wrapper && wrapper.querySelector && wrapper.querySelector('label');
@@ -360,18 +594,14 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       }
     }
 
-    function addToRealCart(detail, modifierId, showStatus, panel) {
-      var missingGroups = getRequiredOptionGroups()
-        .filter(function (g) {
-          return g.optionId !== modifierId;
-        })
-        .filter(function (g) {
-          return !isGroupFilled(g);
-        });
+    function addToRealCart(detail, modifierId, summaryModifierId, showStatus, panel) {
+      var missingGroups = getRequiredOptionGroups([modifierId, summaryModifierId]).filter(function (g) {
+        return !isGroupFilled(g);
+      });
 
       if (missingGroups.length) {
         promptForMissingFields(missingGroups, panel, showStatus, function () {
-          addToRealCart(detail, modifierId, showStatus, panel);
+          addToRealCart(detail, modifierId, summaryModifierId, showStatus, panel);
         });
         return;
       }
@@ -381,10 +611,13 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
 
       var optionSelections = collectFormOptionSelections();
       if (modifierId && detail && detail.designId !== undefined && detail.designId !== null) {
-        optionSelections = optionSelections.filter(function (sel) {
-          return sel.optionId !== modifierId;
-        });
+        optionSelections = withoutOptionSelection(optionSelections, modifierId);
         optionSelections.push({ optionId: modifierId, optionValue: String(detail.designId) });
+      }
+      var selectionSummary = buildKickflipSelectionSummary(detail);
+      if (summaryModifierId && selectionSummary) {
+        optionSelections = withoutOptionSelection(optionSelections, summaryModifierId);
+        optionSelections.push({ optionId: summaryModifierId, optionValue: selectionSummary });
       }
 
       var lineItem = { productId: productId, quantity: quantity };
@@ -454,7 +687,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       }
     }
 
-    function openCustomizeOverlay(url, label, modifierId) {
+    function openCustomizeOverlay(url, label, modifierId, summaryModifierId) {
       var overlay = document.createElement('div');
       overlay.style.cssText =
         'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);' +
@@ -503,7 +736,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         try {
           if (!e.data || e.data.eventName !== 'mczrAddToCart') return;
           if (!customizerOrigin || e.origin !== customizerOrigin) return;
-          addToRealCart(e.data.detail, modifierId, showStatus, panel);
+          addToRealCart(e.data.detail, modifierId, summaryModifierId, showStatus, panel);
         } catch (err) {
           log('onKickflipMessage error: ' + err);
         }
@@ -601,6 +834,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
 
         keepEnsuring(function () {
           if (config.modifierId) hideModifierField(config.modifierId);
+          if (config.summaryModifierId) hideModifierField(config.summaryModifierId);
 
           var addToCartBtn = findAddToCartAnchor();
           if (!addToCartBtn || !addToCartBtn.parentNode) return;
@@ -617,7 +851,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
             'border:none;border-radius:4px;cursor:pointer;';
 
           button.addEventListener('click', function () {
-            openCustomizeOverlay(config.customizeUrl, label, config.modifierId);
+            openCustomizeOverlay(config.customizeUrl, label, config.modifierId, config.summaryModifierId);
           });
 
           addToCartBtn.parentNode.insertBefore(button, addToCartBtn.nextSibling);

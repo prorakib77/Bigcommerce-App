@@ -70,3 +70,13 @@ export async function updateKickflipModifierId(
     data: { kickflipModifierId: modifierId },
   });
 }
+
+export async function updateKickflipSummaryModifierId(
+  configId: string,
+  modifierId: number,
+): Promise<void> {
+  await prisma.productCustomizeConfig.updateMany({
+    where: { id: configId },
+    data: { kickflipSummaryModifierId: modifierId },
+  });
+}

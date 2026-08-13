@@ -261,7 +261,7 @@ unauthenticated by design.
 
 **Assumed, not confirmed against live BigCommerce docs this session**: `src/lib/bigcommerce/modifiers.ts`
 (`createModifier`) and `bcModifierSchema` (`src/lib/bigcommerce/schemas.ts`) assume
-`POST /catalog/products/{id}/modifiers` accepts `{ type: 'text', display_name, required: false,
+`POST /catalog/products/{id}/modifiers` accepts `{ type: 'text' | 'multi_line_text', display_name, required: false,
 config: { text_max_length } }` and returns an object with a numeric `id` (the `option_id` later
 referenced from `optionSelections` when adding to cart — see below). WebFetch attempts against
 BigCommerce's live docs this session came back with an incomplete required-field list, so this
@@ -272,6 +272,11 @@ type, not the raw response, and is already wrapped non-fatally (same `MOCK_MODE`
 fire-and-forget call-site pattern as every other self-heal registration in this app) — a failure
 here degrades to "cart-add still works, just without the design reference attached," never a
 broken save or a broken storefront.
+
+The cart bridge now creates two cached text modifiers per configured product: `Kickflip design
+reference` for the hidden `designId`, and `Kickflip selected options` for the shopper-readable
+configuration summary. The second modifier is also hidden on the product page, but its submitted
+value is intended to remain visible on the cart/order line item.
 
 ## Widget generation: regex literals must double-escape inside the outer template literal
 
@@ -340,8 +345,12 @@ form fields, then retries — rather than surfacing an unexplained "could not ad
 **Confirmed live this session (2026-08-12)**: a `text`-type modifier accepts an arbitrary string
 `optionValue` (verified with a real add to a real cart: `attribute[236]` — a `text`-type,
 merchant-configured modifier — accepted `optionValue: "TEST ENGRAVING"` and returned `200` with the
-line item present in the cart). The Kickflip designId modifier is the same `text` type, so the
-same shape applies.
+line item present in the cart). The Kickflip designId modifier uses `text`, while the
+shopper-readable `Kickflip selected options` summary modifier uses `multi_line_text`; BigCommerce's
+modifier docs list the same `text_max_length` config for both types. The widget builds that second
+value from Kickflip's `summary` / `configuration` / selected-options payload when present,
+formatted as newline-separated `Label: Value` rows and truncated to the modifier's configured text
+limit.
 
 **Deliberately out of scope, not a bug**: Kickflip's own calculated `price` (from the
 `mczrAddToCart` payload) is never sent — there is no BigCommerce cart-API mechanism to set a
@@ -355,6 +364,6 @@ chosen.
 BigCommerce-rendered Modifier field uses `id="attribute-{modifierId}"` /
 `name="attribute[{modifierId}]"`, observed on this store's own live product pages this session.
 `hideModifierField()` (`storefront-widget.ts`) uses this to hide the auto-created design-reference
-field from ordinary shoppers. Best-effort and degrades gracefully: if a different theme uses a
-different convention, the field simply stays visible (labeled "Kickflip design reference") rather
-than breaking anything.
+and selected-options summary fields from ordinary product-page shoppers. Best-effort and degrades
+gracefully: if a different theme uses a different convention, the fields simply stay visible
+(labeled "Kickflip design reference" / "Kickflip selected options") rather than breaking anything.

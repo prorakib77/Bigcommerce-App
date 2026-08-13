@@ -343,12 +343,12 @@ directly under Add to Cart; clicking it opens the configured URL in an overlay i
 - **Real cart integration (Kickflip customizer only)**: when the customizer iframe fires
   Kickflip's own `mczrAddToCart` postMessage event, the widget script adds the product to the
   shopper's real BigCommerce cart via the client-side Storefront Cart API and continues to
-  checkout normally. The specific design chosen is attached to the order via a hidden,
-  auto-registered BigCommerce Product Modifier (`kickflipModifierId` on `ProductCustomizeConfig`,
-  `src/services/product-customize-service.ts::ensureDesignReferenceModifier`) so the merchant can
-  look up the exact design (via Kickflip's own admin, using the stored `designId`) for
-  fulfillment. **Price does not carry through**: BigCommerce's cart API has no mechanism to accept
-  a custom price for a catalog line item, so the cart always charges the product's normal
+  checkout normally. The specific design chosen is attached via a hidden, auto-registered
+  BigCommerce Product Modifier (`kickflipModifierId` on `ProductCustomizeConfig`), and the
+  shopper-readable Kickflip selections are attached through a second text modifier
+  (`kickflipSummaryModifierId`) so the cart/order shows a normal line-item option list such as
+  `Skin Tones: Yellow`. **Price does not carry through**: BigCommerce's cart API has no mechanism
+  to accept a custom price for a catalog line item, so the cart always charges the product's normal
   BigCommerce price regardless of the Kickflip configuration chosen — see
   `docs/api-assumptions.md` for the full writeup and its still-open assumptions.
 

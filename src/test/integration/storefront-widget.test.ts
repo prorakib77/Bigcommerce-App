@@ -39,12 +39,20 @@ describe('GET /api/public/storefront/customize-config', () => {
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(response.headers.get('Cache-Control')).toContain('max-age=30');
     const body = (await response.json()) as {
-      data: { enabled: boolean; customizeUrl: string; buttonLabel: string };
+      data: {
+        enabled: boolean;
+        customizeUrl: string;
+        buttonLabel: string;
+        modifierId: number | null;
+        summaryModifierId: number | null;
+      };
     };
     expect(body.data).toEqual({
       enabled: true,
       customizeUrl: 'https://customizer.example.com/embed/xyz',
       buttonLabel: 'Customize it',
+      modifierId: null,
+      summaryModifierId: null,
     });
   });
 
@@ -57,7 +65,13 @@ describe('GET /api/public/storefront/customize-config', () => {
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as { data: { enabled: boolean; customizeUrl: null } };
-    expect(body.data).toEqual({ enabled: false, customizeUrl: null, buttonLabel: 'Customize' });
+    expect(body.data).toEqual({
+      enabled: false,
+      customizeUrl: null,
+      buttonLabel: 'Customize',
+      modifierId: null,
+      summaryModifierId: null,
+    });
   });
 
   it('returns a disabled default for an inactive store', async () => {

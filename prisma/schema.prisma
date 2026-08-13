@@ -14,41 +14,41 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model Store {
-  id                    String    @id @default(cuid())
-  storeHash             String    @unique
-  accountUuid           String?
-  platformContext       String? // BigCommerce `context` query param, e.g. "stores/abc123"
-  encryptedAccessToken  String
-  scope                 String
-  ownerBigcommerceUserId String
-  ownerEmail            String
-  isActive              Boolean   @default(true)
-  installedAt           DateTime  @default(now())
-  uninstalledAt         DateTime?
+  id                           String    @id @default(cuid())
+  storeHash                    String    @unique
+  accountUuid                  String?
+  platformContext              String? // BigCommerce `context` query param, e.g. "stores/abc123"
+  encryptedAccessToken         String
+  scope                        String
+  ownerBigcommerceUserId       String
+  ownerEmail                   String
+  isActive                     Boolean   @default(true)
+  installedAt                  DateTime  @default(now())
+  uninstalledAt                DateTime?
   // Set once BigCommerce Script Manager registration for the storefront
   // Customize widget succeeds — see src/services/storefront-script-service.ts.
   // A non-null uuid means "already registered," and skips re-registering.
-  storefrontScriptUuid          String?
-  storefrontScriptRegisteredAt  DateTime?
+  storefrontScriptUuid         String?
+  storefrontScriptRegisteredAt DateTime?
   // Self-heal bookkeeping for the Orders webhook — see
   // src/services/orders-webhook-service.ts. A non-null ordersWebhookId means
   // "already registered." ordersWebhookSecret is the shared-header value
   // BigCommerce echoes back on every delivery (src/app/api/public/webhooks/bigcommerce/orders).
-  ordersWebhookId               Int?
-  ordersWebhookSecret           String?
-  ordersWebhookRegisteredAt     DateTime?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  ordersWebhookId              Int?
+  ordersWebhookSecret          String?
+  ordersWebhookRegisteredAt    DateTime?
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
 
-  users               StoreUser[]
-  kickflipConnection  KickflipConnection?
-  settings            StoreSettings?
-  importMappings      ImportMapping[]
-  importRuns          ImportRun[]
-  auditLogs           AuditLog[]
-  sessions            AppSession[]
+  users                   StoreUser[]
+  kickflipConnection      KickflipConnection?
+  settings                StoreSettings?
+  importMappings          ImportMapping[]
+  importRuns              ImportRun[]
+  auditLogs               AuditLog[]
+  sessions                AppSession[]
   productCustomizeConfigs ProductCustomizeConfig[]
-  orders              Order[]
+  orders                  Order[]
 
   @@index([isActive])
   @@map("stores")
@@ -60,16 +60,16 @@ enum StoreUserRole {
 }
 
 model StoreUser {
-  id                  String        @id @default(cuid())
-  storeId             String
-  store               Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  bigcommerceUserId   String
-  email               String
-  role                StoreUserRole @default(USER)
-  isActive            Boolean       @default(true)
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
-  removedAt           DateTime?
+  id                String        @id @default(cuid())
+  storeId           String
+  store             Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  bigcommerceUserId String
+  email             String
+  role              StoreUserRole @default(USER)
+  isActive          Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  removedAt         DateTime?
 
   sessions   AppSession[]
   importRuns ImportRun[]
@@ -92,18 +92,18 @@ enum KickflipConnectionStatus {
 }
 
 model KickflipConnection {
-  id                String                    @id @default(cuid())
-  storeId           String                    @unique
-  store             Store                     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  id                String                   @id @default(cuid())
+  storeId           String                   @unique
+  store             Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   tenantId          String
   encryptedApiToken String?
   tokenLastFour     String?
-  status            KickflipConnectionStatus  @default(NOT_CONFIGURED)
-  lastVerifiedAt     DateTime?
-  lastErrorCode      String?
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
-  disconnectedAt      DateTime?
+  status            KickflipConnectionStatus @default(NOT_CONFIGURED)
+  lastVerifiedAt    DateTime?
+  lastErrorCode     String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  disconnectedAt    DateTime?
 
   @@map("kickflip_connections")
 }
@@ -113,20 +113,20 @@ model KickflipConnection {
 // ---------------------------------------------------------------------------
 
 model StoreSettings {
-  storeId                String   @id
-  store                  Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  defaultCategoryIds     Int[]    @default([])
-  defaultProductWeight   Decimal  @default(0) @db.Decimal(10, 4)
-  skuPrefix               String   @default("KF")
-  defaultVisibility        Boolean  @default(false)
-  importImages             Boolean  @default(true)
-  updateImagesOnReimport   Boolean  @default(true)
-  updateNameOnReimport     Boolean  @default(true)
-  updatePriceOnReimport    Boolean  @default(true)
-  updateDescriptionOnReimport Boolean @default(true)
-  maxImagesPerDesign       Int      @default(8)
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  storeId                     String   @id
+  store                       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  defaultCategoryIds          Int[]    @default([])
+  defaultProductWeight        Decimal  @default(0) @db.Decimal(10, 4)
+  skuPrefix                   String   @default("KF")
+  defaultVisibility           Boolean  @default(false)
+  importImages                Boolean  @default(true)
+  updateImagesOnReimport      Boolean  @default(true)
+  updateNameOnReimport        Boolean  @default(true)
+  updatePriceOnReimport       Boolean  @default(true)
+  updateDescriptionOnReimport Boolean  @default(true)
+  maxImagesPerDesign          Int      @default(8)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
 
   @@map("store_settings")
 }
@@ -141,22 +141,22 @@ enum ImportMappingStatus {
 }
 
 model ImportMapping {
-  id                        String               @id @default(cuid())
-  storeId                   String
-  store                     Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  kickflipDesignId          String
-  kickflipNumericDesignId   Int?
-  kickflipProductId         String?
+  id                          String              @id @default(cuid())
+  storeId                     String
+  store                       Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  kickflipDesignId            String
+  kickflipNumericDesignId     Int?
+  kickflipProductId           String?
   kickflipCustomizerProductId String?
-  bigcommerceProductId      Int
-  sourceFingerprint         String
-  sourceUpdatedAt           DateTime?
-  status                    ImportMappingStatus  @default(ACTIVE)
-  lastSuccessfulImportAt     DateTime?
-  lastAttemptedImportAt      DateTime?
-  orphaned                   Boolean              @default(false)
-  createdAt                  DateTime             @default(now())
-  updatedAt                  DateTime             @updatedAt
+  bigcommerceProductId        Int
+  sourceFingerprint           String
+  sourceUpdatedAt             DateTime?
+  status                      ImportMappingStatus @default(ACTIVE)
+  lastSuccessfulImportAt      DateTime?
+  lastAttemptedImportAt       DateTime?
+  orphaned                    Boolean             @default(false)
+  createdAt                   DateTime            @default(now())
+  updatedAt                   DateTime            @updatedAt
 
   importRuns ImportRun[]
 
@@ -195,31 +195,31 @@ enum ImportStatus {
 }
 
 model ImportRun {
-  id                    String           @id @default(cuid())
-  storeId               String
-  store                 Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  storeUserId            String
-  storeUser              StoreUser        @relation(fields: [storeUserId], references: [id])
-  mappingId               String?
-  mapping                 ImportMapping?   @relation(fields: [mappingId], references: [id])
-  kickflipDesignId        String
-  bigcommerceProductId    Int?
-  operation                ImportOperation
-  status                   ImportStatus     @default(QUEUED)
-  currentStage             String?
-  idempotencyKey            String           @unique
-  pgBossJobId               String?
-  sourceFingerprint         String?
-  optionsSnapshot           Json
-  attemptCount              Int              @default(0)
-  safeErrorCode              String?
-  safeErrorMessage            String?
-  internalErrorRef            String?
-  correlationId               String
-  startedAt                   DateTime?
-  finishedAt                   DateTime?
-  createdAt                    DateTime         @default(now())
-  updatedAt                    DateTime         @updatedAt
+  id                   String          @id @default(cuid())
+  storeId              String
+  store                Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeUserId          String
+  storeUser            StoreUser       @relation(fields: [storeUserId], references: [id])
+  mappingId            String?
+  mapping              ImportMapping?  @relation(fields: [mappingId], references: [id])
+  kickflipDesignId     String
+  bigcommerceProductId Int?
+  operation            ImportOperation
+  status               ImportStatus    @default(QUEUED)
+  currentStage         String?
+  idempotencyKey       String          @unique
+  pgBossJobId          String?
+  sourceFingerprint    String?
+  optionsSnapshot      Json
+  attemptCount         Int             @default(0)
+  safeErrorCode        String?
+  safeErrorMessage     String?
+  internalErrorRef     String?
+  correlationId        String
+  startedAt            DateTime?
+  finishedAt           DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
   @@index([storeId, status])
   @@index([storeId, kickflipDesignId])
@@ -232,18 +232,18 @@ model ImportRun {
 // ---------------------------------------------------------------------------
 
 model AuditLog {
-  id             String     @id @default(cuid())
-  storeId        String
-  store          Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  storeUserId    String?
-  storeUser      StoreUser? @relation(fields: [storeUserId], references: [id])
-  action         String
-  entityType     String
-  entityId       String?
-  safeMetadata   Json?
-  correlationId  String?
+  id                String     @id @default(cuid())
+  storeId           String
+  store             Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeUserId       String?
+  storeUser         StoreUser? @relation(fields: [storeUserId], references: [id])
+  action            String
+  entityType        String
+  entityId          String?
+  safeMetadata      Json?
+  correlationId     String?
   requestIdentifier String? // IP hash or other privacy-safe identifier
-  createdAt      DateTime   @default(now())
+  createdAt         DateTime   @default(now())
 
   @@index([storeId, createdAt])
   @@index([storeId, entityType, entityId])
@@ -275,20 +275,24 @@ model AppSession {
 // ---------------------------------------------------------------------------
 
 model ProductCustomizeConfig {
-  id                   String   @id @default(cuid())
-  storeId              String
-  store                Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  bigcommerceProductId Int
-  enabled              Boolean  @default(false)
-  customizeUrl         String?
-  buttonLabel          String   @default("Customize")
+  id                        String   @id @default(cuid())
+  storeId                   String
+  store                     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  bigcommerceProductId      Int
+  enabled                   Boolean  @default(false)
+  customizeUrl              String?
+  buttonLabel               String   @default("Customize")
   // BigCommerce Product Modifier option_id auto-created on this product to
   // carry the Kickflip designId through checkout onto the order — see
   // src/services/product-customize-service.ts::ensureDesignReferenceModifier
   // and docs/api-assumptions.md.
-  kickflipModifierId   Int?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  kickflipModifierId        Int?
+  // BigCommerce Product Modifier option_id auto-created on this product to
+  // carry the shopper-readable Kickflip selected options summary into the
+  // cart/order as a normal line-item option.
+  kickflipSummaryModifierId Int?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
   @@unique([storeId, bigcommerceProductId])
   @@map("product_customize_configs")
@@ -326,14 +330,14 @@ model Order {
 // ---------------------------------------------------------------------------
 
 model OneTimeToken {
-  id        String    @id @default(cuid())
-  purpose   String
-  tokenHash String    @unique
-  storeId   String
+  id          String    @id @default(cuid())
+  purpose     String
+  tokenHash   String    @unique
+  storeId     String
   storeUserId String
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
 
   @@index([expiresAt])
   @@map("one_time_tokens")

@@ -4,8 +4,8 @@ import { bcModifierSchema, bcSingleResponseSchema, type BcModifier } from './sch
 
 /**
  * BigCommerce Product Modifiers API (`/catalog/products/{id}/modifiers`), used
- * only to auto-create a hidden text field that carries the Kickflip designId
- * through checkout onto the order (src/services/product-customize-service.ts).
+ * to auto-create text fields that carry Kickflip cart metadata through
+ * checkout onto the order (src/services/product-customize-service.ts).
  * Kept separate from catalog.ts's product create/update/list functions — this
  * is a narrower, single-purpose adapter for one specific write, not part of
  * the general catalog surface.
@@ -18,6 +18,7 @@ const modifierResponseSchema = bcSingleResponseSchema(bcModifierSchema);
 
 export interface CreateModifierInput {
   displayName: string;
+  type?: 'text' | 'multi_line_text';
   /** Max characters BigCommerce accepts for the shopper-facing text value. */
   textMaxLength?: number;
 }
@@ -34,16 +35,20 @@ export async function createModifier(
   productId: number,
   input: CreateModifierInput,
 ): Promise<BcModifier> {
-  const result = await client.requestJson<unknown>('POST', `/catalog/products/${productId}/modifiers`, {
-    body: {
-      type: 'text',
-      display_name: input.displayName,
-      required: false,
-      config: {
-        text_max_length: input.textMaxLength ?? 64,
+  const result = await client.requestJson<unknown>(
+    'POST',
+    `/catalog/products/${productId}/modifiers`,
+    {
+      body: {
+        type: input.type ?? 'text',
+        display_name: input.displayName,
+        required: false,
+        config: {
+          text_max_length: input.textMaxLength ?? 64,
+        },
       },
     },
-  });
+  );
 
   const parsed = modifierResponseSchema.safeParse(result.data);
   if (!parsed.success) {

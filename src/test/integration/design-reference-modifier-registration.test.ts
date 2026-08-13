@@ -47,7 +47,7 @@ function mockModifierEndpoint(storeHash: string, productId: number, handler: () 
 }
 
 describe('ensureDesignReferenceModifier', () => {
-  it('creates the modifier and persists its id when none is registered yet', async () => {
+  it('creates the cart metadata modifiers and persists their ids when none are registered yet', async () => {
     process.env.MOCK_MODE = 'false';
     __resetEnvCacheForTests();
 
@@ -57,17 +57,26 @@ describe('ensureDesignReferenceModifier', () => {
     let calls = 0;
     mockModifierEndpoint(store.storeHash, 100050, () => {
       calls += 1;
-      return HttpResponse.json({ data: { id: 555, display_name: 'Kickflip design reference', type: 'text' } });
+      return HttpResponse.json({
+        data: {
+          id: calls === 1 ? 555 : 556,
+          display_name: calls === 1 ? 'Kickflip design reference' : 'Kickflip selected options',
+          type: 'text',
+        },
+      });
     });
 
     await ensureDesignReferenceModifier(store, config, 'corr-1');
-    expect(calls).toBe(1);
+    expect(calls).toBe(2);
 
-    const updated = await prisma.productCustomizeConfig.findUniqueOrThrow({ where: { id: config.id } });
+    const updated = await prisma.productCustomizeConfig.findUniqueOrThrow({
+      where: { id: config.id },
+    });
     expect(updated.kickflipModifierId).toBe(555);
+    expect(updated.kickflipSummaryModifierId).toBe(556);
   });
 
-  it('does not re-register once a modifier id is already cached', async () => {
+  it('only registers the missing summary modifier when the design modifier id is already cached', async () => {
     process.env.MOCK_MODE = 'false';
     __resetEnvCacheForTests();
 
@@ -90,10 +99,46 @@ describe('ensureDesignReferenceModifier', () => {
     });
 
     await ensureDesignReferenceModifier(store, config, 'corr-2');
+    expect(calls).toBe(1);
+
+    const unchanged = await prisma.productCustomizeConfig.findUniqueOrThrow({
+      where: { id: config.id },
+    });
+    expect(unchanged.kickflipModifierId).toBe(999);
+    expect(unchanged.kickflipSummaryModifierId).toBe(777);
+  });
+
+  it('does not re-register once both modifier ids are already cached', async () => {
+    process.env.MOCK_MODE = 'false';
+    __resetEnvCacheForTests();
+
+    const { store } = await seedStore();
+    const config = await prisma.productCustomizeConfig.create({
+      data: {
+        storeId: store.id,
+        bigcommerceProductId: 100055,
+        enabled: true,
+        customizeUrl: 'https://customizer.example.com/embed/abc',
+        buttonLabel: 'Customize',
+        kickflipModifierId: 999,
+        kickflipSummaryModifierId: 1000,
+      },
+    });
+
+    let calls = 0;
+    mockModifierEndpoint(store.storeHash, 100055, () => {
+      calls += 1;
+      return HttpResponse.json({ data: { id: 777 } });
+    });
+
+    await ensureDesignReferenceModifier(store, config, 'corr-6');
     expect(calls).toBe(0);
 
-    const unchanged = await prisma.productCustomizeConfig.findUniqueOrThrow({ where: { id: config.id } });
+    const unchanged = await prisma.productCustomizeConfig.findUniqueOrThrow({
+      where: { id: config.id },
+    });
     expect(unchanged.kickflipModifierId).toBe(999);
+    expect(unchanged.kickflipSummaryModifierId).toBe(1000);
   });
 
   it('does not register a modifier for a disabled config', async () => {
@@ -119,6 +164,12 @@ describe('ensureDesignReferenceModifier', () => {
 
     await ensureDesignReferenceModifier(store, config, 'corr-3');
     expect(calls).toBe(0);
+
+    const unchanged = await prisma.productCustomizeConfig.findUniqueOrThrow({
+      where: { id: config.id },
+    });
+    expect(unchanged.kickflipModifierId).toBeNull();
+    expect(unchanged.kickflipSummaryModifierId).toBeNull();
   });
 
   it('propagates a BigCommerce failure to the caller rather than swallowing it', async () => {
@@ -134,8 +185,11 @@ describe('ensureDesignReferenceModifier', () => {
 
     await expect(ensureDesignReferenceModifier(store, config, 'corr-4')).rejects.toThrow();
 
-    const unchanged = await prisma.productCustomizeConfig.findUniqueOrThrow({ where: { id: config.id } });
+    const unchanged = await prisma.productCustomizeConfig.findUniqueOrThrow({
+      where: { id: config.id },
+    });
     expect(unchanged.kickflipModifierId).toBeNull();
+    expect(unchanged.kickflipSummaryModifierId).toBeNull();
   });
 
   it('does nothing at all when MOCK_MODE is enabled (regression guard)', async () => {
@@ -148,7 +202,10 @@ describe('ensureDesignReferenceModifier', () => {
 
     await ensureDesignReferenceModifier(store, config, 'corr-5');
 
-    const unchanged = await prisma.productCustomizeConfig.findUniqueOrThrow({ where: { id: config.id } });
+    const unchanged = await prisma.productCustomizeConfig.findUniqueOrThrow({
+      where: { id: config.id },
+    });
     expect(unchanged.kickflipModifierId).toBeNull();
+    expect(unchanged.kickflipSummaryModifierId).toBeNull();
   });
 });
