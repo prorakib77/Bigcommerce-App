@@ -462,7 +462,8 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
 
       var panel = document.createElement('div');
       panel.style.cssText =
-        'position:relative;background:#fff;width:100%;max-width:56rem;height:85vh;' +
+        'position:relative;background:#fff;width:calc(100vw - 3rem);max-width:82rem;' +
+        'height:92vh;max-height:calc(100vh - 3rem);' +
         'border-radius:8px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.35);';
 
       var closeBtn = document.createElement('button');
