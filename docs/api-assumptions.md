@@ -352,6 +352,11 @@ value from Kickflip's `summary` / `configuration` / selected-options payload whe
 formatted as newline-separated `Label: Value` rows and truncated to the modifier's configured text
 limit.
 
+On the live Fab Bricks customizer, the correct dynamic labels and answers are in `detail.summary`
+and mirrored in `detail.productionData` as `{ key, value }` rows. `detail.configuration` contains
+only internal ids like `QUESTION-...` / `ANSWER-...`, so the widget deliberately ignores those ids
+and uses the human-readable rows first.
+
 **Deliberately out of scope, not a bug**: Kickflip's own calculated `price` (from the
 `mczrAddToCart` payload) is never sent — there is no BigCommerce cart-API mechanism to set a
 custom price on a catalog line item, only a modifier's own fixed price adjuster can affect price.

@@ -127,9 +127,13 @@ describe('renderStorefrontWidgetScript', () => {
             designId: 'design-123',
             price: 8,
             designImage: 'https://cdn.example.com/design.png',
+            summary: [
+              { key: 'Skin Tones', value: 'Yellow' },
+              { key: 'Face', value: 'Lady Lipstick' },
+              { key: 'Brick 1 Text 2x4', value: '' },
+            ],
             configuration: {
-              skinTones: { label: 'Skin Tones', value: 'Yellow' },
-              face: { label: 'Face', value: 'Lady Lipstick' },
+              'QUESTION-abc': 'ANSWER-def',
             },
           },
         },
@@ -146,11 +150,84 @@ describe('renderStorefrontWidgetScript', () => {
             optionSelections: [
               { optionId: 333, optionValue: 'test' },
               { optionId: 111, optionValue: 'design-123' },
-              { optionId: 222, optionValue: 'Skin Tones: Yellow\nFace: Lady Lipstick' },
+              {
+                optionId: 222,
+                optionValue:
+                  'Skin Tones: Yellow\nFace: Lady Lipstick\nBrick 1 Text 2x4: Untitled answer',
+              },
             ],
           },
         ],
       },
+    ]);
+  });
+
+  it('formats Kickflip cart metadata as visible question answer rows', async () => {
+    const dom = new JSDOM(
+      `
+      <main>
+        <dl class="cart-item-options">
+          <dt>Engraved text: </dt>
+          <dd>test</dd>
+          <dt>Kickflip design reference: </dt>
+          <dd>17</dd>
+          <dt>Kickflip selected options: </dt>
+          <dd>Skin Tones: Yellow
+Face: Lady Lipstick
+QUESTION-abc: ANSWER-def
+key: Brick 1 Text 2x4</dd>
+        </dl>
+      </main>
+      `,
+      { runScripts: 'outside-only', url: 'https://fab-bricks.com/cart.php' },
+    );
+
+    const { window } = dom;
+    const scriptEl = window.document.createElement('script');
+    scriptEl.src =
+      'https://bigcommerce-app-ten.vercel.app/api/public/storefront/widget?storeHash=abc123';
+    Object.defineProperty(window.document, 'currentScript', {
+      configurable: true,
+      get: () => scriptEl,
+    });
+
+    class NoopMutationObserver {
+      observe(): void {
+        // no-op
+      }
+    }
+
+    window.MutationObserver = NoopMutationObserver as unknown as typeof window.MutationObserver;
+    window.setInterval = vi.fn(() => 0) as unknown as typeof window.setInterval;
+
+    window.eval(
+      renderStorefrontWidgetScript({ appBaseUrl: 'https://bigcommerce-app-ten.vercel.app' }),
+    );
+    window.document.dispatchEvent(new window.Event('DOMContentLoaded'));
+    await flushPromises(4);
+
+    const labels = Array.from(window.document.querySelectorAll('dt')).map((el) => ({
+      text: el.textContent?.trim(),
+      display: (el as HTMLElement).style.display,
+    }));
+    const values = Array.from(window.document.querySelectorAll('dd')).map((el) => ({
+      text: el.textContent?.replace(/\s+/g, ' ').trim(),
+      display: (el as HTMLElement).style.display,
+    }));
+    const rows = Array.from(
+      window.document.querySelectorAll('[data-kickflip-selection-list] div'),
+    ).map((el) => el.textContent);
+
+    expect(labels).toEqual([
+      { text: 'Engraved text:', display: '' },
+      { text: 'Kickflip design reference:', display: 'none' },
+      { text: 'Kickflip selected options:', display: 'none' },
+    ]);
+    expect(values[1]).toEqual({ text: '17', display: 'none' });
+    expect(rows).toEqual([
+      'Skin Tones: Yellow',
+      'Face: Lady Lipstick',
+      'Brick 1 Text 2x4: Untitled answer',
     ]);
   });
 });

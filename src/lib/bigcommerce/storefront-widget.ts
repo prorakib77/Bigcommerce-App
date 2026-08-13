@@ -166,6 +166,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     function init() {
     try {
     log('init running, readyState=' + document.readyState);
+    keepCartOptionDisplayFixed();
 
     var productIdInput = document.querySelector('input[name="product_id"]');
 
@@ -234,6 +235,22 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       return value.replace(/\\s+/g, ' ').trim();
     }
 
+    function isInternalKickflipToken(value) {
+      var normalized = cleanSummaryText(value)
+        .toLowerCase()
+        .replace(/[\\s_]+/g, '-');
+      return /^(question|answer)-[a-z0-9]+$/.test(normalized);
+    }
+
+    function containsInternalKickflipToken(value) {
+      return /\\b(?:QUESTION|ANSWER)[\\s_-]+[a-z0-9]+\\b/i.test(cleanSummaryText(value));
+    }
+
+    function getRawKeyQuestionLabel(value) {
+      var match = /^key\\s*:\\s*(.+)$/i.exec(cleanSummaryText(value));
+      return match ? cleanSummaryText(match[1]) : '';
+    }
+
     function humanizeSummaryKey(key) {
       return cleanSummaryText(
         String(key)
@@ -245,6 +262,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
     function isIgnoredSummaryKey(key) {
       var normalized = String(key || '').toLowerCase();
       return (
+        isInternalKickflipToken(key) ||
         normalized === 'designid' ||
         normalized === 'price' ||
         normalized === 'quantity' ||
@@ -268,10 +286,10 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       );
     }
 
-    function pickSummaryValue(obj, keys) {
+    function pickSummaryValue(obj, keys, allowEmpty) {
       for (var i = 0; i < keys.length; i++) {
         var value = obj && obj[keys[i]];
-        if (value !== undefined && value !== null && value !== '') return value;
+        if (value !== undefined && value !== null && (allowEmpty || value !== '')) return value;
       }
       return null;
     }
@@ -293,6 +311,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         return cleanSummaryText(
           pickSummaryValue(value, [
             'label',
+            'key',
             'name',
             'displayName',
             'title',
@@ -317,12 +336,41 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         function addRow(label, value) {
           var cleanLabel = cleanSummaryText(label);
           var cleanValue = cleanSummaryText(value);
-          if (!cleanValue || isMediaLikeSummaryValue(cleanValue)) return;
+          if (
+            !cleanLabel ||
+            /^key:?$/i.test(cleanLabel) ||
+            isInternalKickflipToken(cleanLabel) ||
+            containsInternalKickflipToken(cleanLabel)
+          ) {
+            return;
+          }
+          if (isMediaLikeSummaryValue(cleanValue) || containsInternalKickflipToken(cleanValue)) return;
+          if (!cleanValue) cleanValue = 'Untitled answer';
 
-          var row = cleanLabel ? cleanLabel + ': ' + cleanValue : cleanValue;
+          var row = cleanLabel.replace(/:$/, '') + ': ' + cleanValue;
           if (seenRows[row]) return;
           seenRows[row] = true;
           rows.push(row);
+        }
+
+        function addRawRow(row) {
+          var cleanRow = cleanSummaryText(row);
+          var rawKeyLabel = getRawKeyQuestionLabel(cleanRow);
+          if (rawKeyLabel) {
+            addRow(rawKeyLabel, '');
+            return;
+          }
+          if (
+            !cleanRow ||
+            cleanRow.indexOf(':') === -1 ||
+            /^key\\s*:/i.test(cleanRow) ||
+            containsInternalKickflipToken(cleanRow)
+          ) {
+            return;
+          }
+          if (seenRows[cleanRow]) return;
+          seenRows[cleanRow] = true;
+          rows.push(cleanRow);
         }
 
         function appendPrimitive(value, label) {
@@ -339,7 +387,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
             .split('\\n');
           for (var i = 0; i < rawLines.length; i++) {
             var line = cleanSummaryText(rawLines[i]);
-            if (line) addRow('', line);
+            addRawRow(line);
           }
         }
 
@@ -366,6 +414,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
 
           var explicitLabel = stringifySummaryValue(
             pickSummaryValue(value, [
+              'key',
               'label',
               'name',
               'displayName',
@@ -392,10 +441,15 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
             'valueName',
             'optionValue',
             'text',
-          ]);
+          ], true);
 
-          if (explicitValue !== null) {
-            addRow(explicitLabel || label, stringifySummaryValue(explicitValue));
+          if (explicitLabel) {
+            addRow(explicitLabel, explicitValue === null ? '' : stringifySummaryValue(explicitValue));
+            return;
+          }
+
+          if (explicitValue !== null && label) {
+            addRow(label, stringifySummaryValue(explicitValue));
             return;
           }
 
@@ -407,10 +461,9 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
           }
         }
 
-        [
+        var priorityKeys = [
           'summary',
-          'configuration',
-          'config',
+          'productionData',
           'options',
           'selectedOptions',
           'selectedVariants',
@@ -418,9 +471,11 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
           'variants',
           'choices',
           'items',
-        ].forEach(function (key) {
+        ];
+        for (var sourceIndex = 0; sourceIndex < priorityKeys.length && !rows.length; sourceIndex++) {
+          var key = priorityKeys[sourceIndex];
           appendValue(detail[key], '', 0);
-        });
+        }
 
         if (!rows.length) {
           Object.keys(detail).forEach(function (key) {
@@ -438,6 +493,108 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         log('buildKickflipSelectionSummary error: ' + err);
         return '';
       }
+    }
+
+    function isKickflipCartLabel(text, label) {
+      return cleanSummaryText(text).toLowerCase() === label.toLowerCase() + ':';
+    }
+
+    function parseSelectionSummaryRows(text) {
+      var rows = [];
+      var seen = {};
+      var lines = String(text || '')
+        .replace(/\\r\\n/g, '\\n')
+        .replace(/\\r/g, '\\n')
+        .split('\\n');
+
+      for (var i = 0; i < lines.length; i++) {
+        var line = cleanSummaryText(lines[i]);
+        var rawKeyLabel = getRawKeyQuestionLabel(line);
+        if (
+          rawKeyLabel &&
+          !isInternalKickflipToken(rawKeyLabel) &&
+          !containsInternalKickflipToken(rawKeyLabel)
+        ) {
+          var rawKeyRow = rawKeyLabel.replace(/:$/, '') + ': Untitled answer';
+          if (!seen[rawKeyRow]) {
+            seen[rawKeyRow] = true;
+            rows.push(rawKeyRow);
+          }
+          continue;
+        }
+        if (
+          !line ||
+          line.indexOf(':') === -1 ||
+          /^key\\s*:/i.test(line) ||
+          containsInternalKickflipToken(line)
+        ) {
+          continue;
+        }
+
+        var separatorIndex = line.indexOf(':');
+        var label = cleanSummaryText(line.slice(0, separatorIndex)).replace(/:$/, '');
+        var value = cleanSummaryText(line.slice(separatorIndex + 1)) || 'Untitled answer';
+        if (!label || isInternalKickflipToken(label) || containsInternalKickflipToken(label)) continue;
+
+        var row = label + ': ' + value;
+        if (seen[row]) continue;
+        seen[row] = true;
+        rows.push(row);
+      }
+
+      return rows;
+    }
+
+    function renderSelectionList(target, rows) {
+      target.textContent = '';
+      target.style.display = 'block';
+      target.style.margin = '0';
+      target.style.padding = '0';
+      target.style.whiteSpace = 'normal';
+      target.setAttribute('data-kickflip-selection-formatted', 'true');
+
+      var list = document.createElement('div');
+      list.setAttribute('data-kickflip-selection-list', 'true');
+      list.style.cssText = 'display:block;margin:0;line-height:1.35;';
+
+      for (var i = 0; i < rows.length; i++) {
+        var row = document.createElement('div');
+        row.textContent = rows[i];
+        row.style.cssText = 'display:block;margin:0;';
+        list.appendChild(row);
+      }
+
+      target.appendChild(list);
+    }
+
+    function formatCartKickflipOptions() {
+      try {
+        var labels = document.querySelectorAll('dl.cart-item-options dt');
+        for (var i = 0; i < labels.length; i++) {
+          var label = labels[i];
+          var value = label.nextElementSibling;
+          if (!value || value.tagName !== 'DD') continue;
+
+          if (isKickflipCartLabel(label.textContent, 'Kickflip design reference')) {
+            hideElement(label, 'data-kickflip-cart-hidden');
+            hideElement(value, 'data-kickflip-cart-hidden');
+            continue;
+          }
+
+          if (isKickflipCartLabel(label.textContent, 'Kickflip selected options')) {
+            hideElement(label, 'data-kickflip-cart-hidden');
+            if (value.getAttribute('data-kickflip-selection-formatted') === 'true') continue;
+            var rows = parseSelectionSummaryRows(value.textContent);
+            if (rows.length) renderSelectionList(value, rows);
+          }
+        }
+      } catch (err) {
+        // no-op - best-effort only.
+      }
+    }
+
+    function keepCartOptionDisplayFixed() {
+      keepEnsuring(formatCartKickflipOptions);
     }
 
     function withoutOptionSelection(selections, optionId) {
