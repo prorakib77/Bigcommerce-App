@@ -114,6 +114,7 @@ describe('renderStorefrontWidgetScript', () => {
     expect(customizeButton).not.toBeNull();
     expect(customizeButton?.parentElement?.tagName).toBe('FORM');
     expect(customizeButton?.style.display).toBe('block');
+    expect(customizeButton?.style.backgroundColor).toBe('rgb(0, 0, 0)');
     expect(addToCartButton?.style.display).toBe('none');
     expect(quantityLabel?.style.display).toBe('none');
     customizeButton?.click();
@@ -292,6 +293,94 @@ describe('renderStorefrontWidgetScript', () => {
       },
     ]);
     expect(storefrontPosts).toEqual([]);
+  });
+
+  it('opens the customizer as a full-screen modal on mobile viewports', async () => {
+    const dom = new JSDOM(
+      `
+      <form>
+        <input name="product_id" value="86" />
+        <div class="form-field form-submit-container" data-product-add>
+          <button id="form-action-addToCart" type="submit">Add to Cart</button>
+        </div>
+      </form>
+      `,
+      { runScripts: 'outside-only', url: 'https://fab-bricks.com/santa-minifig/' },
+    );
+
+    const { window } = dom;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+
+    const scriptEl = window.document.createElement('script');
+    scriptEl.src =
+      'https://bigcommerce-app-ten.vercel.app/api/public/storefront/widget?storeHash=abc123';
+    Object.defineProperty(window.document, 'currentScript', {
+      configurable: true,
+      get: () => scriptEl,
+    });
+
+    class NoopMutationObserver {
+      observe(): void {
+        // no-op
+      }
+    }
+
+    window.MutationObserver = NoopMutationObserver as unknown as typeof window.MutationObserver;
+    window.setInterval = vi.fn(() => 0) as unknown as typeof window.setInterval;
+
+    window.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+
+      if (url.includes('/api/public/storefront/customize-config')) {
+        return Response.json({
+          data: {
+            enabled: true,
+            customizeUrl: 'https://customizer.example.com/embed/abc',
+            buttonLabel: 'Customize',
+            modifierId: null,
+            summaryModifierId: null,
+          },
+        });
+      }
+
+      throw new Error(`Unexpected fetch ${method} ${url}`);
+    }) as unknown as typeof window.fetch;
+
+    window.eval(
+      renderStorefrontWidgetScript({ appBaseUrl: 'https://bigcommerce-app-ten.vercel.app' }),
+    );
+    window.document.dispatchEvent(new window.Event('DOMContentLoaded'));
+    await flushPromises(4);
+
+    const customizeButton = window.document.querySelector(
+      '[data-kickflip-customize-button]',
+    ) as HTMLButtonElement | null;
+    customizeButton?.click();
+
+    const overlay = window.document.querySelector(
+      '[data-kickflip-modal-overlay]',
+    ) as HTMLElement | null;
+    const panel = window.document.querySelector(
+      '[data-kickflip-modal-panel]',
+    ) as HTMLElement | null;
+
+    expect(overlay?.style.padding).toBe('0px');
+    expect(panel?.style.width).toBe('100vw');
+    expect(panel?.style.maxWidth).toBe('none');
+    expect(panel?.style.height).toBe('100vh');
+    expect(panel?.style.maxHeight).toBe('none');
+    expect(panel?.style.borderRadius).toBe('0px');
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    window.dispatchEvent(new window.Event('resize'));
+
+    expect(overlay?.style.padding).toBe('1.5rem');
+    expect(panel?.style.width).toBe('calc(100vw - 3rem)');
+    expect(panel?.style.maxWidth).toBe('82rem');
+    expect(panel?.style.height).toBe('92vh');
+    expect(panel?.style.maxHeight).toBe('calc(100vh - 3rem)');
+    expect(panel?.style.borderRadius).toBe('8px');
   });
 
   it('shows dynamic additional and live prices in the customize modal', async () => {

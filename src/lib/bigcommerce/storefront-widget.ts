@@ -1140,15 +1140,50 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
 
     function openCustomizeOverlay(url, label, modifierId, summaryModifierId) {
       var overlay = document.createElement('div');
+      overlay.setAttribute('data-kickflip-modal-overlay', '');
       overlay.style.cssText =
         'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);' +
         'z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:1.5rem;';
 
       var panel = document.createElement('div');
+      panel.setAttribute('data-kickflip-modal-panel', '');
       panel.style.cssText =
         'position:relative;background:#fff;width:calc(100vw - 3rem);max-width:82rem;' +
         'height:92vh;max-height:calc(100vh - 3rem);' +
         'border-radius:8px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.35);';
+
+      function isMobileModalViewport() {
+        var width =
+          typeof window.innerWidth === 'number'
+            ? window.innerWidth
+            : document.documentElement.clientWidth;
+        return width <= 767;
+      }
+
+      function applyModalViewport() {
+        if (isMobileModalViewport()) {
+          overlay.style.padding = '0';
+          overlay.style.alignItems = 'stretch';
+          overlay.style.justifyContent = 'stretch';
+          panel.style.width = '100vw';
+          panel.style.maxWidth = 'none';
+          panel.style.height = '100vh';
+          panel.style.maxHeight = 'none';
+          panel.style.borderRadius = '0';
+          panel.style.boxShadow = 'none';
+          return;
+        }
+
+        overlay.style.padding = '1.5rem';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        panel.style.width = 'calc(100vw - 3rem)';
+        panel.style.maxWidth = '82rem';
+        panel.style.height = '92vh';
+        panel.style.maxHeight = 'calc(100vh - 3rem)';
+        panel.style.borderRadius = '8px';
+        panel.style.boxShadow = '0 8px 32px rgba(0,0,0,0.35)';
+      }
 
       var closeBtn = document.createElement('button');
       closeBtn.type = 'button';
@@ -1252,9 +1287,14 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       function onKeydown(e) {
         if (e.key === 'Escape') close();
       }
+      function onViewportChange() {
+        applyModalViewport();
+      }
       function close() {
         if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         document.removeEventListener('keydown', onKeydown);
+        window.removeEventListener('resize', onViewportChange);
+        window.removeEventListener('orientationchange', onViewportChange);
         window.removeEventListener('message', onKickflipMessage);
       }
 
@@ -1263,6 +1303,8 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         if (e.target === overlay) close();
       });
       document.addEventListener('keydown', onKeydown);
+      window.addEventListener('resize', onViewportChange);
+      window.addEventListener('orientationchange', onViewportChange);
       window.addEventListener('message', onKickflipMessage);
 
       panel.appendChild(closeBtn);
@@ -1270,6 +1312,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       panel.appendChild(iframe);
       panel.appendChild(statusBar);
       overlay.appendChild(panel);
+      applyModalViewport();
       document.body.appendChild(overlay);
     }
 
@@ -1359,7 +1402,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
           button.textContent = label;
           button.style.cssText =
             'display:block;width:100%;margin-top:0.75rem;padding:0.75rem 1rem;' +
-            'font-size:1rem;font-weight:600;color:#fff;background:#3c64f4;' +
+            'font-size:1rem;font-weight:600;color:#fff;background:#000;' +
             'border:none;border-radius:4px;cursor:pointer;';
 
           button.addEventListener('click', function () {
