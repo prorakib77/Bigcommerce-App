@@ -1,10 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "services": {
-    "kickflip-import-web": {
-      "root": ".",
-      "framework": "nextjs"
-    }
-  },
-  "rewrites": [{ "source": "/(.*)", "destination": { "service": "kickflip-import-web" } }]
+  "framework": "nextjs"
 }
