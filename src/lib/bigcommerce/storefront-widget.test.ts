@@ -22,7 +22,6 @@ describe('renderStorefrontWidgetScript', () => {
       `
       <form>
         <input name="product_id" value="86" />
-        <input name="qty[]" value="2" />
         <div class="form-field">
           <label for="attribute-111">Kickflip design reference</label>
           <input id="attribute-111" name="attribute[111]" value="" />
@@ -35,7 +34,15 @@ describe('renderStorefrontWidgetScript', () => {
           <label for="attribute-333">Engraved text</label>
           <input id="attribute-333" name="attribute[333]" required value="test" />
         </div>
-        <button id="form-action-addToCart" type="submit">Add to Cart</button>
+        <div class="form-field form-submit-container" data-product-add>
+          <label class="form-field-quantity-label">
+            Quantity
+            <span data-quantity-control="86">
+              <input name="qty[]" value="2" />
+            </span>
+          </label>
+          <button id="form-action-addToCart" type="submit">Add to Cart</button>
+        </div>
       </form>
       `,
       { runScripts: 'outside-only', url: 'https://fab-bricks.com/santa-minifig/' },
@@ -98,7 +105,17 @@ describe('renderStorefrontWidgetScript', () => {
     const customizeButton = window.document.querySelector(
       '[data-kickflip-customize-button]',
     ) as HTMLButtonElement | null;
+    const addToCartButton = window.document.querySelector(
+      '#form-action-addToCart',
+    ) as HTMLButtonElement | null;
+    const quantityLabel = window.document.querySelector(
+      '.form-field-quantity-label',
+    ) as HTMLElement | null;
     expect(customizeButton).not.toBeNull();
+    expect(customizeButton?.parentElement?.tagName).toBe('FORM');
+    expect(customizeButton?.style.display).toBe('block');
+    expect(addToCartButton?.style.display).toBe('none');
+    expect(quantityLabel?.style.display).toBe('none');
     customizeButton?.click();
 
     window.dispatchEvent(

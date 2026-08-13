@@ -125,6 +125,9 @@
  *    submitted with a readable `Label: Value` summary so the cart/order shows
  *    the selections as normal line-item option metadata. This is intentionally
  *    not a BigCommerce variant or custom price integration.
+ *  - On products with this iframe/customizer enabled, the native quantity
+ *    selector and native Add to Cart button are hidden so shoppers enter the
+ *    cart flow through the customizer.
  */
 export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): string {
   const appBaseUrlLiteral = JSON.stringify(params.appBaseUrl);
@@ -683,8 +686,60 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
         wrapper.style.display = 'none';
         wrapper.setAttribute('data-kickflip-hidden', 'true');
       } catch (err) {
-        // no-op — best-effort only.
+        // no-op - best-effort only.
       }
+    }
+
+    function hideElement(el, markerAttribute) {
+      try {
+        if (!el || el.getAttribute(markerAttribute) === 'true') return;
+        el.style.display = 'none';
+        el.setAttribute(markerAttribute, 'true');
+      } catch (err) {
+        // no-op - best-effort only.
+      }
+    }
+
+    function hideQuantityControls() {
+      try {
+        var currentProductIdInput = document.querySelector('input[name="product_id"]');
+        var form = currentProductIdInput && currentProductIdInput.closest('form');
+        var scope = form || document;
+        var qtyFields = scope.querySelectorAll(
+          'input[name="qty[]"], input[name="quantity"], [data-quantity-control-input]',
+        );
+
+        for (var i = 0; i < qtyFields.length; i++) {
+          var field = qtyFields[i];
+          var wrapper =
+            (field.closest &&
+              (field.closest('.form-field-quantity-label') ||
+                field.closest('.form-field--increments') ||
+                field.closest('[data-quantity-control]') ||
+                field.closest('.quantity') ||
+                field.closest('.form-field'))) ||
+            field;
+          hideElement(wrapper, 'data-kickflip-native-quantity-hidden');
+        }
+      } catch (err) {
+        // no-op - best-effort only.
+      }
+    }
+
+    function getCustomizeInsertionPoint(addToCartBtn) {
+      var purchaseContainer =
+        addToCartBtn &&
+        addToCartBtn.closest &&
+        addToCartBtn.closest('[data-product-add], .form-action, .form-submit-container');
+      if (purchaseContainer && purchaseContainer.parentNode) {
+        return { parent: purchaseContainer.parentNode, before: purchaseContainer.nextSibling };
+      }
+      return { parent: addToCartBtn.parentNode, before: addToCartBtn.nextSibling };
+    }
+
+    function hideNativePurchaseControls(addToCartBtn) {
+      hideQuantityControls();
+      hideElement(addToCartBtn, 'data-kickflip-native-add-hidden');
     }
 
     function openCustomizeOverlay(url, label, modifierId, summaryModifierId) {
@@ -838,7 +893,11 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
 
           var addToCartBtn = findAddToCartAnchor();
           if (!addToCartBtn || !addToCartBtn.parentNode) return;
+          hideNativePurchaseControls(addToCartBtn);
           if (document.querySelector('[data-kickflip-customize-button]')) return;
+
+          var insertionPoint = getCustomizeInsertionPoint(addToCartBtn);
+          if (!insertionPoint.parent) return;
 
           var label = config.buttonLabel || 'Customize';
           var button = document.createElement('button');
@@ -854,7 +913,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
             openCustomizeOverlay(config.customizeUrl, label, config.modifierId, config.summaryModifierId);
           });
 
-          addToCartBtn.parentNode.insertBefore(button, addToCartBtn.nextSibling);
+          insertionPoint.parent.insertBefore(button, insertionPoint.before || null);
           log('Customize button: inserted');
         });
       })

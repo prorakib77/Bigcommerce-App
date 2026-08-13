@@ -367,3 +367,11 @@ BigCommerce-rendered Modifier field uses `id="attribute-{modifierId}"` /
 and selected-options summary fields from ordinary product-page shoppers. Best-effort and degrades
 gracefully: if a different theme uses a different convention, the fields simply stay visible
 (labeled "Kickflip design reference" / "Kickflip selected options") rather than breaking anything.
+
+For configured iframe products, the same widget also hides the native purchase controls. The
+Add to Cart button is located with the same theme-agnostic text/id scan used for insertion, and
+quantity controls are hidden by common Stencil selectors (`input[name="qty[]"]`,
+`[data-quantity-control-input]`, `.form-field-quantity-label`, `[data-quantity-control]`). On the
+Fab Bricks live product page, these controls sit under `[data-product-add]`; the Customize button is
+inserted outside that native control group so it remains visible after the native controls are
+hidden.

@@ -351,6 +351,9 @@ directly under Add to Cart; clicking it opens the configured URL in an overlay i
   to accept a custom price for a catalog line item, so the cart always charges the product's normal
   BigCommerce price regardless of the Kickflip configuration chosen — see
   `docs/api-assumptions.md` for the full writeup and its still-open assumptions.
+- **Native purchase controls**: on products where the iframe/customizer is configured and enabled,
+  the widget hides the native BigCommerce quantity selector and Add to Cart button so shoppers use
+  the Customize button flow.
 
 ## Orders sync
 
