@@ -80,14 +80,10 @@
  *    customizer's own origin — the one input-validation boundary this
  *    addition introduces.
  *  - Adds to the real BigCommerce cart via the client-side Storefront Cart
- *    API (`/api/storefront/carts`, camelCase body — confirmed against live
- *    BigCommerce docs this session, a different casing convention than the
- *    v3 REST APIs used everywhere else in this app). This call is same-
- *    origin (this script executes as part of the storefront page itself),
- *    so no CORS/relay is needed. Kickflip's own calculated price is *not*
- *    passed through — BigCommerce's cart API has no mechanism to accept an
- *    arbitrary custom price for a catalog line item, only a pre-configured
- *    Modifier's own price adjuster can affect price. The `designId` is
+ *    API (`/api/storefront/carts`, camelCase body) when Kickflip reports no
+ *    custom price. When Kickflip reports a nonzero price adjustment, the
+ *    widget calls this app's backend priced-cart relay so the server can use
+ *    BigCommerce's Management Cart API with `list_price`. The `designId` is
  *    attached via `optionSelections` on a Modifier auto-created per product
  *    (src/services/product-customize-service.ts::ensureDesignReferenceModifier)
  *    and then hidden from ordinary shoppers via `hideModifierField` below,
@@ -123,8 +119,7 @@
  *    auto-created text Modifier (`summaryModifierId` in the public config).
  *    It is hidden on the product page like the design-reference field, but
  *    submitted with a readable `Label: Value` summary so the cart/order shows
- *    the selections as normal line-item option metadata. This is intentionally
- *    not a BigCommerce variant or custom price integration.
+ *    the selections as normal line-item option metadata.
  *  - On products with this iframe/customizer enabled, the native quantity
  *    selector and native Add to Cart button are hidden so shoppers enter the
  *    cart flow through the customizer.
@@ -188,11 +183,11 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       '&productId=' +
       encodeURIComponent(String(productId));
 
-    // Adds the configured product to the real BigCommerce cart via the
-    // client-side Storefront Cart API, attaching the Kickflip designId via
-    // the auto-registered Modifier's optionSelections when available. See
-    // the file-level comment for the confirmed API shape and its
-    // limitations (no custom price passthrough).
+    // Adds the configured product to the real BigCommerce cart, attaching the
+    // Kickflip designId via the auto-registered Modifier's optionSelections
+    // when available. Uses the backend priced-cart relay when Kickflip reports
+    // a nonzero price adjustment, otherwise keeps the same-origin Storefront
+    // Cart API path.
     // Reads every existing attribute[N] field from the real Add to Cart
     // form (text/textarea/select/checked radio/checked checkbox) and turns
     // it into an optionSelections entry. Confirmed necessary in production:
@@ -604,6 +599,140 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
       });
     }
 
+    function parseMoney(value) {
+      if (value === undefined || value === null || value === '') return null;
+      if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+      if (typeof value === 'string') {
+        var normalized = value.replace(/,/g, '').replace(/[^0-9.+-]/g, '').trim();
+        if (!/^-?\\d+(\\.\\d{1,4})?$/.test(normalized)) return null;
+        var parsed = Number(normalized);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      if (typeof value === 'object') {
+        var keys = ['amount', 'price', 'value', 'total', 'totalPrice', 'adjustment'];
+        for (var i = 0; i < keys.length; i++) {
+          var nested = parseMoney(value[keys[i]]);
+          if (nested !== null) return nested;
+        }
+      }
+      return null;
+    }
+
+    function sumMoneyEntries(value) {
+      if (!value) return null;
+      var total = 0;
+      var found = false;
+
+      function visit(entry) {
+        if (entry === undefined || entry === null) return;
+        if (Array.isArray(entry)) {
+          for (var i = 0; i < entry.length; i++) visit(entry[i]);
+          return;
+        }
+        var amount = parseMoney(entry);
+        if (amount !== null) {
+          total += amount;
+          found = true;
+        }
+      }
+
+      visit(value);
+      return found ? total : null;
+    }
+
+    function getKickflipPriceAdjustment(detail) {
+      if (!detail || typeof detail !== 'object') return null;
+
+      var directPrice = parseMoney(detail.price);
+      if (directPrice !== null && Math.abs(directPrice) >= 0.005) return directPrice;
+
+      var customExtraPrices = sumMoneyEntries(detail.customExtraPrices);
+      if (customExtraPrices !== null && Math.abs(customExtraPrices) >= 0.005) {
+        return customExtraPrices;
+      }
+
+      var pricing = detail.pricing || {};
+      var pricingKeys = ['adjustment', 'priceAdjustment', 'extraPrice', 'extrasTotal', 'total'];
+      for (var i = 0; i < pricingKeys.length; i++) {
+        var candidate = parseMoney(pricing[pricingKeys[i]]);
+        if (candidate !== null && Math.abs(candidate) >= 0.005) return candidate;
+      }
+
+      return directPrice;
+    }
+
+    function formatMoneyForRequest(value) {
+      return (Math.round(value * 100) / 100).toFixed(2);
+    }
+
+    function getCurrentVariantId() {
+      var selectors = [
+        'input[name="variant_id"]',
+        'input[name="variation_id"]',
+        'select[name="variant_id"]',
+        '[data-product-variant-id]',
+      ];
+      for (var i = 0; i < selectors.length; i++) {
+        var el = document.querySelector(selectors[i]);
+        if (!el) continue;
+        var raw = el.value || el.getAttribute('data-product-variant-id');
+        var parsed = parseInt(raw, 10);
+        if (Number.isInteger(parsed) && parsed > 0) return parsed;
+      }
+      return null;
+    }
+
+    function getCurrentCart() {
+      return fetch('/api/storefront/carts', { method: 'GET', credentials: 'include' })
+        .then(function (res) {
+          if (!res || res.status === 404) return null;
+          return res.ok ? res.json() : null;
+        })
+        .then(function (body) {
+          // Confirmed in production: a 200 with no existing cart returns an
+          // empty array ([]), not a 404 and not a single Cart object as
+          // originally assumed. Handle both an array and a bare object.
+          return Array.isArray(body) ? body[0] || null : body;
+        });
+    }
+
+    function addWithStorefrontCart(lineItem) {
+      return getCurrentCart().then(function (cart) {
+        if (cart && cart.id) {
+          return fetch('/api/storefront/carts/' + cart.id + '/items', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lineItems: [lineItem] }),
+          });
+        }
+        return fetch('/api/storefront/carts', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lineItems: [lineItem] }),
+        });
+      });
+    }
+
+    function addWithPricedCart(lineItem, priceAdjustment) {
+      return getCurrentCart().then(function (cart) {
+        return fetch(APP_BASE_URL + '/api/public/storefront/priced-cart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            storeHash: storeHash,
+            productId: parseInt(productId, 10),
+            variantId: getCurrentVariantId(),
+            cartId: cart && cart.id ? cart.id : null,
+            quantity: lineItem.quantity,
+            kickflipPriceAdjustment: formatMoneyForRequest(priceAdjustment),
+            optionSelections: lineItem.optionSelections || [],
+          }),
+        });
+      });
+    }
+
     // Finds every OTHER required attribute[N] group on the native form (not
     // the Kickflip metadata modifiers themselves), grouped by optionId so a
     // radio/checkbox set counts as one group rather than one per input.
@@ -785,12 +914,29 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
 
       showStatus('Adding to cart…', false);
 
-      fetch('/api/storefront/carts', { method: 'GET', credentials: 'include' })
+      var priceAdjustment = getKickflipPriceAdjustment(detail);
+      var cartRequest =
+        priceAdjustment !== null && Math.abs(priceAdjustment) >= 0.005
+          ? addWithPricedCart(lineItem, priceAdjustment)
+          : addWithStorefrontCart(lineItem);
+
+      cartRequest
         .then(function (res) {
-          if (!res || res.status === 404) return null;
-          return res.ok ? res.json() : null;
+          if (!res || !res.ok) {
+            throw new Error('cart request failed, status=' + (res && res.status));
+          }
+          return res.json().catch(function () {
+            return null;
+          });
         })
         .then(function (body) {
+          if (body && (body.id || body.data)) {
+            return {
+              ok: true,
+              status: 200,
+              kickflipRedirectUrl: body.data && body.data.cartUrl,
+            };
+          }
           // Confirmed in production: a 200 with no existing cart returns an
           // empty array ([]), not a 404 and not a single Cart object as
           // originally assumed — handle both an array and a bare object so
@@ -818,7 +964,7 @@ export function renderStorefrontWidgetScript(params: { appBaseUrl: string }): st
           log('Added to cart via Kickflip design ' + (detail && detail.designId));
           showStatus('Added to cart! Redirecting…', false);
           setTimeout(function () {
-            window.location.href = '/cart.php';
+            window.location.href = res.kickflipRedirectUrl || '/cart.php';
           }, 900);
         })
         .catch(function (err) {

@@ -39,17 +39,17 @@ function mockTokenExchange(overrides: Record<string, unknown> = {}) {
 function installUrl(): URL {
   const url = new URL('http://localhost:3000/api/bigcommerce/auth');
   url.searchParams.set('code', 'code-1');
-  url.searchParams.set('scope', 'store_v2_products store_v2_content store_v2_orders_read_only');
+  url.searchParams.set(
+    'scope',
+    'store_v2_products store_v2_content store_v2_orders_read_only store_cart',
+  );
   url.searchParams.set('context', 'stores/teststore1');
   return url;
 }
 
 function mockScriptEndpoint(handler: () => Response) {
   mswServer.use(
-    http.post(
-      `${getEnv().BIGCOMMERCE_API_BASE_URL}/stores/teststore1/v3/content/scripts`,
-      handler,
-    ),
+    http.post(`${getEnv().BIGCOMMERCE_API_BASE_URL}/stores/teststore1/v3/content/scripts`, handler),
   );
 }
 
@@ -73,7 +73,9 @@ function mockScriptUpdateEndpoint(handler: (uuid: string) => Response) {
 function mockHooksEndpointDefault(): void {
   mswServer.use(
     http.post(`${getEnv().BIGCOMMERCE_API_BASE_URL}/stores/teststore1/v3/hooks`, () =>
-      HttpResponse.json({ data: { id: 1, scope: 'store/order/created', destination: 'https://example.com' } }),
+      HttpResponse.json({
+        data: { id: 1, scope: 'store/order/created', destination: 'https://example.com' },
+      }),
     ),
   );
 }

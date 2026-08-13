@@ -36,13 +36,12 @@ export const envSchema = z.object({
   // `store_v2_content` (BigCommerce "Content" scope) is required for the
   // Script Manager registration used by the storefront Customize widget
   // (src/lib/bigcommerce/scripts.ts). `store_v2_orders_read_only` is required
-  // for the Orders sync webhook (src/lib/bigcommerce/orders.ts). FLAG: both
-  // exact scope identifiers are unverified assumptions — confirm against the
-  // BigCommerce Developer Portal's OAuth Scopes list before relying on them
-  // (see docs/api-assumptions.md).
+  // for the Orders sync webhook (src/lib/bigcommerce/orders.ts). `store_cart`
+  // is required for the priced Kickflip cart relay to override a cart line
+  // item's list_price through the BigCommerce Management Cart API.
   BIGCOMMERCE_APP_SCOPES: z
     .string()
-    .default('store_v2_products store_v2_content store_v2_orders_read_only')
+    .default('store_v2_products store_v2_content store_v2_orders_read_only store_cart')
     .transform((value) =>
       value
         .split(' ')

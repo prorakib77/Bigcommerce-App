@@ -126,21 +126,20 @@ flow, job stage machine, idempotency guarantees).
 This release deliberately does **not** implement (see [`docs/api-assumptions.md`](docs/api-assumptions.md)
 and the in-app Help page for more):
 
-- **Partially walked back:** a full live Kickflip *configurator* embedded inline on the
+- **Partially walked back:** a full live Kickflip _configurator_ embedded inline on the
   storefront — what this app now does is a merchant-configured "Customize" **button** under Add
   to Cart that opens a merchant-supplied URL (which may or may not be a Kickflip customizer) in
   an iframe overlay. See [Storefront Customize button](#storefront-customize-button). This app
   still does not embed, proxy, or otherwise integrate with the Kickflip configurator itself —
   the iframe target is opaque to this app.
-- **Partially walked back:** dynamic storefront pricing or BigCommerce cart integration with the
-  customizer — clicking Add to Cart *inside* the Kickflip customizer now does add the product to
-  the real BigCommerce cart with the chosen design attached to the order (see
-  [Storefront Customize button](#storefront-customize-button)). What's still excluded: Kickflip's
-  own calculated price never carries through to BigCommerce — the cart always charges the
-  product's normal BigCommerce price, since BigCommerce's cart API has no mechanism to accept a
-  custom price for a catalog line item.
+- **Partially walked back:** BigCommerce cart integration with the customizer — clicking Add to
+  Cart _inside_ the Kickflip customizer now adds the product to the real BigCommerce cart with the
+  chosen design, readable selection list, and Kickflip price adjustment attached to the order when
+  the store has authorized the `store_cart` scope (see
+  [Storefront Customize button](#storefront-customize-button)). What's still excluded: turning
+  every Kickflip customization choice into a first-class BigCommerce variant.
 - Live cart / "add to cart" / abandoned-cart activity tracking — explicitly deferred, out of
-  scope for this release. Only *completed* orders are synced; see [Orders sync](#orders-sync).
+  scope for this release. Only _completed_ orders are synced; see [Orders sync](#orders-sync).
 - **Partially walked back:** "Order synchronization or automatic fulfillment" — this app now
   syncs orders **in** (BigCommerce → this app, view-only, via webhook) for visibility. It still
   does **not** write anything back to BigCommerce's order data (no status updates, no automatic
@@ -291,8 +290,8 @@ production.
    - Uninstall callback: `https://<your-tunnel-or-domain>/api/bigcommerce/uninstall`
    - Remove-user callback: `https://<your-tunnel-or-domain>/api/bigcommerce/remove-user`
 3. Under **OAuth Scopes**, request **Products: Modify** (`store_v2_products`), **Content**
-   (`store_v2_content`), and **Orders: Read-Only** (`store_v2_orders_read_only`) — see
-   [OAuth scopes](#oauth-scopes).
+   (`store_v2_content`), **Orders: Read-Only** (`store_v2_orders_read_only`), and
+   **Carts: Modify** (`store_cart`) — see [OAuth scopes](#oauth-scopes).
 4. Copy the generated Client ID and Client Secret into `BIGCOMMERCE_CLIENT_ID` /
    `BIGCOMMERCE_CLIENT_SECRET`.
 5. Install the draft app on a BigCommerce sandbox/dev store.
@@ -303,11 +302,12 @@ tunnel's HTTPS origin.
 
 ## OAuth scopes
 
-| Scope                                      | Why it's needed                                                                                              |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `store_v2_products` (**Products: Modify**) | Create and update the BigCommerce products, images, and metafields this app generates from Kickflip designs, plus the Products page's browse/edit-any-product feature. |
-| `store_v2_content` (**Content**)           | Registers the storefront Customize-button script via BigCommerce Script Manager (`/content/scripts`) — see [Storefront Customize button](#storefront-customize-button). **FLAG:** this exact scope identifier is an unverified assumption, not confirmed against the live BigCommerce Developer Portal this session — see `docs/api-assumptions.md`. |
-| `store_v2_orders_read_only` (**Orders: Read-Only**) | Reads order data (via the webhook receiver and the manual "Sync now" pull) to populate the Orders page — see [Orders sync](#orders-sync). Deliberately Read-Only, not Modify: this app never writes order data back to BigCommerce. **FLAG:** this exact scope identifier is an unverified assumption — see `docs/api-assumptions.md`. |
+| Scope                                               | Why it's needed                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `store_v2_products` (**Products: Modify**)          | Create and update the BigCommerce products, images, and metafields this app generates from Kickflip designs, plus the Products page's browse/edit-any-product feature.                                                                                                                                                                               |
+| `store_v2_content` (**Content**)                    | Registers the storefront Customize-button script via BigCommerce Script Manager (`/content/scripts`) — see [Storefront Customize button](#storefront-customize-button). **FLAG:** this exact scope identifier is an unverified assumption, not confirmed against the live BigCommerce Developer Portal this session — see `docs/api-assumptions.md`. |
+| `store_v2_orders_read_only` (**Orders: Read-Only**) | Reads order data (via the webhook receiver and the manual "Sync now" pull) to populate the Orders page — see [Orders sync](#orders-sync). Deliberately Read-Only, not Modify: this app never writes order data back to BigCommerce. **FLAG:** this exact scope identifier is an unverified assumption — see `docs/api-assumptions.md`.               |
+| `store_cart` (**Carts: Modify**)                    | Creates or updates BigCommerce carts from the storefront priced-cart relay so nonzero Kickflip price adjustments can be merged into the catalog product's `list_price`.                                                                                                                                                                              |
 
 Only request a new scope with a one-line justification like the rows above, and update
 `BIGCOMMERCE_APP_SCOPES` — don't request scopes speculatively.
@@ -342,15 +342,14 @@ directly under Add to Cart; clicking it opens the configured URL in an overlay i
   cut (see `docs/api-assumptions.md`).
 - **Real cart integration (Kickflip customizer only)**: when the customizer iframe fires
   Kickflip's own `mczrAddToCart` postMessage event, the widget script adds the product to the
-  shopper's real BigCommerce cart via the client-side Storefront Cart API and continues to
-  checkout normally. The specific design chosen is attached via a hidden, auto-registered
-  BigCommerce Product Modifier (`kickflipModifierId` on `ProductCustomizeConfig`), and the
-  shopper-readable Kickflip selections are attached through a second text modifier
-  (`kickflipSummaryModifierId`) so the cart/order shows a normal line-item option list such as
-  `Skin Tones: Yellow`. **Price does not carry through**: BigCommerce's cart API has no mechanism
-  to accept a custom price for a catalog line item, so the cart always charges the product's normal
-  BigCommerce price regardless of the Kickflip configuration chosen — see
-  `docs/api-assumptions.md` for the full writeup and its still-open assumptions.
+  shopper's real BigCommerce cart and continues to checkout normally. Zero-price customizations use
+  the same-origin Storefront Cart API. Nonzero Kickflip price adjustments go through this app's
+  public priced-cart relay, which uses the BigCommerce Management Cart API to set the merged unit
+  `list_price` (`BigCommerce product price + Kickflip adjustment`). The specific design chosen is
+  attached via a hidden, auto-registered BigCommerce Product Modifier (`kickflipModifierId` on
+  `ProductCustomizeConfig`), and the shopper-readable Kickflip selections are attached through a
+  second text modifier (`kickflipSummaryModifierId`) so the cart/order shows a normal line-item
+  option list such as `Skin Tones: Yellow`.
 - **Native purchase controls**: on products where the iframe/customizer is configured and enabled,
   the widget hides the native BigCommerce quantity selector and Add to Cart button so shoppers use
   the Customize button flow.
@@ -379,7 +378,7 @@ real-time, so a merchant can see order activity without leaving this app.
 - **View-only**: this app never writes order data back to BigCommerce — no status updates, no
   fulfillment actions. See [Explicit exclusions](#explicit-exclusions).
 - **Not included**: live cart / "add to cart" activity, and abandoned-cart tracking — only
-  *completed* orders are synced. See [Explicit exclusions](#explicit-exclusions).
+  _completed_ orders are synced. See [Explicit exclusions](#explicit-exclusions).
 
 ## Multiple-user configuration
 

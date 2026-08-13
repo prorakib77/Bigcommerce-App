@@ -10,10 +10,16 @@
  * that would make every public route CORS-open by default. Callers wrap
  * their own route's exported handler with this instead.
  */
-export function withCorsHeaders(response: Response): Response {
+export interface CorsOptions {
+  methods?: string;
+  headers?: string;
+}
+
+export function withCorsHeaders(response: Response, options: CorsOptions = {}): Response {
   const headers = new Headers(response.headers);
   headers.set('Access-Control-Allow-Origin', '*');
-  headers.set('Access-Control-Allow-Methods', 'GET');
+  headers.set('Access-Control-Allow-Methods', options.methods ?? 'GET');
+  if (options.headers) headers.set('Access-Control-Allow-Headers', options.headers);
   headers.set('Vary', 'Origin');
   return new Response(response.body, {
     status: response.status,

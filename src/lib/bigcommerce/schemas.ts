@@ -125,6 +125,29 @@ export const bcProductSchema = z
   .loose();
 export type BcProduct = z.infer<typeof bcProductSchema>;
 
+// ---------------------------------------------------------------------------
+// Management Cart API (src/lib/bigcommerce/carts.ts)
+// ---------------------------------------------------------------------------
+
+export const bcCartRedirectUrlsSchema = z
+  .object({
+    cart_url: z.string().optional(),
+    checkout_url: z.string().optional(),
+    embedded_checkout_url: z.string().optional(),
+  })
+  .loose();
+export type BcCartRedirectUrls = z.infer<typeof bcCartRedirectUrlsSchema>;
+
+export const bcCartSchema = z
+  .object({
+    id: z.string(),
+    redirect_urls: bcCartRedirectUrlsSchema.optional(),
+  })
+  .loose();
+export type BcCart = z.infer<typeof bcCartSchema>;
+
+export const bcCartRedirectResponseSchema = bcSingleResponseSchema(bcCartRedirectUrlsSchema);
+
 export const bcMetafieldSchema = z
   .object({
     id: z.number().optional(),

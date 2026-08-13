@@ -67,9 +67,9 @@ shape originally assumed from the brief:
     "resultSize": 0,
     "lastIndex": 0,
     "sortOrder": "descending",
-    "sortKey": "designId"
+    "sortKey": "designId",
   },
-  "results": []
+  "results": [],
 }
 ```
 
@@ -149,7 +149,7 @@ this release.
 
 ## Live configurator functionality — mostly still out of scope
 
-Design *import* remains static-product-only: this app does not embed, proxy, or otherwise
+Design _import_ remains static-product-only: this app does not embed, proxy, or otherwise
 integrate with the Kickflip configurator's actual logic. What changed with the Products page and
 storefront Customize button (below) is narrower: a merchant-configured **button** that opens a
 merchant-supplied URL in an iframe overlay. This app never inspects, validates, or knows what's
@@ -229,7 +229,7 @@ to support HMAC-signed webhook deliveries (a signature computed over the raw bod
 secret, verifiable without a DB lookup), **prefer that over the static header** — it's strictly
 stronger, since it lets the receiver reject a forged request before ever looking up the store or
 touching the database, and it can't be replayed against a different payload the way a static
-header technically could be (a leaked static header is valid for *any* body; an HMAC signature is
+header technically could be (a leaked static header is valid for _any_ body; an HMAC signature is
 only valid for the exact body it was computed over). This app's actual exposure to a leaked
 header is bounded regardless — see the "re-fetch, don't trust the payload" design in
 `docs/architecture.md` and `SECURITY.md` — but HMAC would still be a strict improvement.
@@ -247,7 +247,7 @@ Orders to Read-Only and reinstalls, this is the first place to check — fix in 
 
 **Confirmed, not a guess** — this one is verified against Kickflip's own published help docs
 (https://help.gokickflip.com/en/articles/4586872-custom-integration, fetched live this session,
-not derived from the project brief). When a shopper clicks Add to Cart *inside* the Kickflip
+not derived from the project brief). When a shopper clicks Add to Cart _inside_ the Kickflip
 customizer iframe, it fires `window.postMessage({ eventName: 'mczrAddToCart', detail: {...} },
 '*')` to the parent window. `detail` includes `designId`, `price`, `productId`/
 `customizerProductId` (Kickflip's own internal ids — **not** BigCommerce's product id, a
@@ -282,7 +282,7 @@ value is intended to remain visible on the cart/order line item.
 
 **Root-caused a serious live bug this session, the same bug class as the earlier `\s`→`s`
 incident.** `renderStorefrontWidgetScript` (`storefront-widget.ts`) builds the whole widget as one
-big TS template literal. A regex literal written with a *single* backslash inside that outer
+big TS template literal. A regex literal written with a _single_ backslash inside that outer
 string (`/^attribute\[(\d+)\]/`) has its backslashes silently stripped by TypeScript's own
 template-literal parsing, producing `/^attribute[(d+)]/` in the actual generated script — a
 character class matching one of `(`, `d`, `+`, `)`, which never matches `attribute[236]` at all.
@@ -295,16 +295,17 @@ existing, already-correct pattern in `ADD_TO_CART_TEXT` (`/add\\s*to\\s*cart/i`)
 literal added to this file's returned template string must use this same double-escaping** — this
 is easy to get wrong again and won't show up in `pnpm typecheck`/`pnpm lint`, only in the
 generated output's actual runtime behavior. Verify with `node --check` on the generated script
-*and* a direct string/regex test, not just a syntax check — the earlier `\s` bug was syntactically
+_and_ a direct string/regex test, not just a syntax check — the earlier `\s` bug was syntactically
 valid too.
 
-## BigCommerce Storefront Cart API
+## BigCommerce storefront and Management Cart APIs
 
 **Partially confirmed this session, partially still an assumption.** Confirmed against live
 BigCommerce docs: the client-side Storefront Cart API uses **camelCase** field names
 (`lineItems`, `productId`, `quantity`, `optionSelections`, `optionId`, `optionValue`) — a
 different casing convention than every other BigCommerce API this app talks to, which are all v3
-REST (`snake_case`). Confirmed request shapes:
+REST (`snake_case`). It is still used for zero-price Kickflip customizations. Confirmed request
+shapes:
 
 ```jsonc
 // POST /api/storefront/carts — create a new cart
@@ -321,7 +322,7 @@ existing cart on this store — not a `404`, and not a single Cart object. `addT
 ? body[0] : body`) since this may vary by store/theme.
 
 **Confirmed live this session, root-caused a real production failure**: BigCommerce rejects the
-*entire* `POST` with a `422` (`"This product requires modifier options"`) if the product has any
+_entire_ `POST` with a `422` (`"This product requires modifier options"`) if the product has any
 other **required** Modifier and the request's `optionSelections` doesn't include a value for it —
 completely independent of Kickflip's own auto-created modifier. Reproduced directly against
 fab-bricks.com/santa-minifig/: the product has a merchant-configured required text modifier
@@ -332,7 +333,7 @@ on the native Add to Cart form (text/textarea/select/checked radio/checked check
 each one's current value alongside the designId modifier — the same set of fields the native Add
 to Cart button itself would submit.
 
-That alone isn't sufficient when such a field is required *and still empty* — the shopper never
+That alone isn't sufficient when such a field is required _and still empty_ — the shopper never
 had a reason to fill in "Engraved text" while using the Kickflip overlay, so forwarding an empty
 value still gets a 422 (confirmed live: reproduced the exact same error again after the first fix,
 via a full simulated `mczrAddToCart` flow with a real `getRequiredOptionGroups()` scan showing
@@ -357,11 +358,18 @@ and mirrored in `detail.productionData` as `{ key, value }` rows. `detail.config
 only internal ids like `QUESTION-...` / `ANSWER-...`, so the widget deliberately ignores those ids
 and uses the human-readable rows first.
 
-**Deliberately out of scope, not a bug**: Kickflip's own calculated `price` (from the
-`mczrAddToCart` payload) is never sent — there is no BigCommerce cart-API mechanism to set a
-custom price on a catalog line item, only a modifier's own fixed price adjuster can affect price.
-The cart charges the product's normal BigCommerce price regardless of the Kickflip configuration
-chosen.
+**Confirmed by BigCommerce Management Cart API docs and now implemented:** nonzero Kickflip
+price adjustments are sent to `POST /api/public/storefront/priced-cart`, where the server fetches
+the current BigCommerce catalog product price, adds the Kickflip adjustment, and creates or updates
+a cart through the Management Cart API with `list_price` set to that merged unit price. That path
+requires the store's OAuth grant to include `store_cart` / Carts: Modify. Existing installs that
+were authorized before this scope was added must reauthorize before the priced path can work.
+
+**Still an assumption / trust boundary:** the price adjustment currently comes from the verified
+Kickflip iframe `mczrAddToCart` postMessage payload after an origin check against the configured
+customizer URL. No server-side Kickflip design-price verification endpoint has been confirmed yet,
+so the backend validates shape, store/product configuration, and final nonnegative decimal math,
+but does not independently recalculate the Kickflip price.
 
 ## BigCommerce Stencil modifier field DOM convention (`id="attribute-{id}"`)
 

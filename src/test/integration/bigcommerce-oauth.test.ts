@@ -49,7 +49,10 @@ describe('BigCommerce OAuth install (auth callback)', () => {
 
     const url = new URL('http://localhost:3000/api/bigcommerce/auth');
     url.searchParams.set('code', 'auth-code-123');
-    url.searchParams.set('scope', 'store_v2_products store_v2_content store_v2_orders_read_only');
+    url.searchParams.set(
+      'scope',
+      'store_v2_products store_v2_content store_v2_orders_read_only store_cart',
+    );
     url.searchParams.set('context', 'stores/teststore1');
 
     const response = await GET(new Request(url));
@@ -72,7 +75,10 @@ describe('BigCommerce OAuth install (auth callback)', () => {
     const { GET } = await import('@/app/api/bigcommerce/auth/route');
     const url = new URL('http://localhost:3000/api/bigcommerce/auth');
     url.searchParams.set('code', 'code-1');
-    url.searchParams.set('scope', 'store_v2_products store_v2_content store_v2_orders_read_only');
+    url.searchParams.set(
+      'scope',
+      'store_v2_products store_v2_content store_v2_orders_read_only store_cart',
+    );
     url.searchParams.set('context', 'stores/teststore1');
 
     await GET(new Request(url));
@@ -110,7 +116,10 @@ describe('BigCommerce load callback + multi-user provisioning', () => {
     const { GET } = await import('@/app/api/bigcommerce/auth/route');
     const url = new URL('http://localhost:3000/api/bigcommerce/auth');
     url.searchParams.set('code', 'code-1');
-    url.searchParams.set('scope', 'store_v2_products store_v2_content store_v2_orders_read_only');
+    url.searchParams.set(
+      'scope',
+      'store_v2_products store_v2_content store_v2_orders_read_only store_cart',
+    );
     url.searchParams.set('context', 'stores/teststore1');
     await GET(new Request(url));
     return prisma.store.findUniqueOrThrow({ where: { storeHash: 'teststore1' } });
@@ -221,7 +230,10 @@ describe('BigCommerce remove-user callback', () => {
     const { GET: authGet } = await import('@/app/api/bigcommerce/auth/route');
     const authUrl = new URL('http://localhost:3000/api/bigcommerce/auth');
     authUrl.searchParams.set('code', 'code-1');
-    authUrl.searchParams.set('scope', 'store_v2_products store_v2_content store_v2_orders_read_only');
+    authUrl.searchParams.set(
+      'scope',
+      'store_v2_products store_v2_content store_v2_orders_read_only store_cart',
+    );
     authUrl.searchParams.set('context', 'stores/teststore1');
     await authGet(new Request(authUrl));
 
@@ -264,7 +276,10 @@ describe('BigCommerce uninstall callback', () => {
     const { GET: authGet } = await import('@/app/api/bigcommerce/auth/route');
     const authUrl = new URL('http://localhost:3000/api/bigcommerce/auth');
     authUrl.searchParams.set('code', 'code-1');
-    authUrl.searchParams.set('scope', 'store_v2_products store_v2_content store_v2_orders_read_only');
+    authUrl.searchParams.set(
+      'scope',
+      'store_v2_products store_v2_content store_v2_orders_read_only store_cart',
+    );
     authUrl.searchParams.set('context', 'stores/teststore1');
     await authGet(new Request(authUrl));
 

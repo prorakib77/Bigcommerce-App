@@ -37,7 +37,8 @@
    `preDeployCommand` (`pnpm prisma migrate deploy`) applies any pending migrations before the
    new instance goes live.
 6. In the BigCommerce Developer Portal, set the draft app's four callback URLs to match step 4
-   exactly, and confirm the requested scope is **Products: Modify** only.
+   exactly, and confirm the requested scopes match `BIGCOMMERCE_APP_SCOPES`: Products: Modify,
+   Content, Orders: Read-Only, and Carts: Modify.
 7. Install the app on a sandbox store and confirm: install completes, the dashboard loads, a
    mock-free Kickflip connection can be tested and saved, and a real import completes end to end.
 

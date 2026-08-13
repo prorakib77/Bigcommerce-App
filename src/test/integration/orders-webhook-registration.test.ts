@@ -26,7 +26,7 @@ function mockTokenExchange(overrides: Record<string, unknown> = {}) {
     http.post(`${getEnv().BIGCOMMERCE_LOGIN_BASE_URL}/oauth2/token`, () =>
       HttpResponse.json({
         access_token: 'live-access-token-should-never-be-logged',
-        scope: 'store_v2_products store_v2_content store_v2_orders_read_only',
+        scope: 'store_v2_products store_v2_content store_v2_orders_read_only store_cart',
         user: { id: 1000, email: 'owner@example.com' },
         context: 'stores/teststore1',
         account_uuid: 'acc-uuid-1',
@@ -39,7 +39,10 @@ function mockTokenExchange(overrides: Record<string, unknown> = {}) {
 function installUrl(): URL {
   const url = new URL('http://localhost:3000/api/bigcommerce/auth');
   url.searchParams.set('code', 'code-1');
-  url.searchParams.set('scope', 'store_v2_products store_v2_content store_v2_orders_read_only');
+  url.searchParams.set(
+    'scope',
+    'store_v2_products store_v2_content store_v2_orders_read_only store_cart',
+  );
   url.searchParams.set('context', 'stores/teststore1');
   return url;
 }
@@ -57,7 +60,9 @@ function mockScriptEndpointDefault(): void {
 }
 
 function mockHooksEndpoint(handler: () => Response) {
-  mswServer.use(http.post(`${getEnv().BIGCOMMERCE_API_BASE_URL}/stores/teststore1/v3/hooks`, handler));
+  mswServer.use(
+    http.post(`${getEnv().BIGCOMMERCE_API_BASE_URL}/stores/teststore1/v3/hooks`, handler),
+  );
 }
 
 describe('Orders webhook registration', () => {
@@ -71,7 +76,12 @@ describe('Orders webhook registration', () => {
     mockHooksEndpoint(() => {
       hookCalls += 1;
       return HttpResponse.json({
-        data: { id: 4242, scope: 'store/order/created', destination: 'https://example.com', is_active: true },
+        data: {
+          id: 4242,
+          scope: 'store/order/created',
+          destination: 'https://example.com',
+          is_active: true,
+        },
       });
     });
 
