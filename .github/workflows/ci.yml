@@ -159,7 +159,7 @@ jobs:
     needs: [verify]
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Build image (not pushed)
         uses: docker/build-push-action@v6
         with:
@@ -177,7 +177,7 @@ jobs:
       DOCKER_REGISTRY_TOKEN: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       # Only runs when registry credentials are configured as repo secrets —
       # CI never requires them to pass.
       - name: Log in to registry
