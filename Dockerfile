@@ -3,7 +3,7 @@
 # =============================================================================
 # Base: pinned Node 24 (Active LTS) on Debian slim, pnpm via Corepack
 # =============================================================================
-FROM node:24.18.1-bookworm-slim AS base
+FROM node:26.7.0-bookworm-slim AS base
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 WORKDIR /app
 ENV NODE_ENV=production
